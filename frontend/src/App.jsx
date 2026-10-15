@@ -45,40 +45,55 @@ function useRoute() {
 }
 
 // Check-in žije v App, aby běžel dál i při přepnutí na podstránku.
+// Backend drží jen jeden rozběhnutý check-in na hráče: nový start ten předchozí zahodí
+// (pak ping na starý vrací CHECKIN_NOT_FOUND). Proto: žádné souběžné starty, pingy jen
+// z posledního běhu (run) a nikdy dva pingy najednou (setTimeout řetěz místo setInterval).
 function useCheckin(position, onCaptured) {
-  const [state, setState] = useState({ phase: 'idle' }) // idle | running | done | error
+  const [state, setState] = useState({ phase: 'idle' }) // idle | starting | running | done | error
   const posRef = useRef(position)
   posRef.current = position
   const timer = useRef(null)
-  useEffect(() => () => clearInterval(timer.current), [])
+  const run = useRef(0)
+  const stop = () => { clearTimeout(timer.current); run.current++ }
+  useEffect(() => stop, [])
 
-  async function start(poi) {
-    clearInterval(timer.current)
+  async function start(poi, retried = false) {
+    stop()
+    const myRun = run.current
     const poiId = poi.properties.id
+    const name = poi.properties.name
+    const alive = () => run.current === myRun
+    setState({ phase: 'starting', poiId, name })
     try {
       const { checkin_id, required_seconds } = await api.startCheckin({ poi_id: poiId, ...posRef.current })
-      setState({ phase: 'running', poiId, name: poi.properties.name, elapsed: 0, required: required_seconds, valid: true })
-      timer.current = setInterval(async () => {
+      if (!alive()) return
+      setState({ phase: 'running', poiId, name, elapsed: 0, required: required_seconds, valid: true })
+      const tick = async () => {
         try {
           const { elapsed_s, valid, reason } = await api.ping(checkin_id, posRef.current)
+          if (!alive()) return
           if (elapsed_s >= required_seconds) {
-            clearInterval(timer.current)
             const res = await api.finish(checkin_id)
-            setState({ phase: 'done', poiId, name: poi.properties.name, ...res })
+            if (!alive()) return
+            setState({ phase: 'done', poiId, name, ...res })
             onCaptured()
-          } else {
-            setState((s) => ({ ...s, elapsed: elapsed_s, valid, reason }))
+            return
           }
+          setState((s) => ({ ...s, elapsed: elapsed_s, valid, reason }))
+          timer.current = setTimeout(tick, PING_EVERY_MS)
         } catch (e) {
-          clearInterval(timer.current)
-          setState({ phase: 'error', poiId, msg: e.message })
+          if (!alive()) return
+          // Check-in zmizel z backendu (start z jiného zařízení/záložky, restart serveru) -> jednou zkusit znovu.
+          if (e.code === 'CHECKIN_NOT_FOUND' && !retried) return start(poi, true)
+          setState({ phase: 'error', poiId, msg: e.code === 'CHECKIN_NOT_FOUND' ? 'Check-in se přerušil (běží jinde, nebo se restartoval server). Zkus to znovu.' : e.message })
         }
-      }, PING_EVERY_MS)
+      }
+      timer.current = setTimeout(tick, PING_EVERY_MS)
     } catch (e) {
-      setState({ phase: 'error', poiId, msg: e.message })
+      if (alive()) setState({ phase: 'error', poiId, msg: e.message })
     }
   }
-  const cancel = () => { clearInterval(timer.current); setState({ phase: 'idle' }) }
+  const cancel = () => { stop(); setState({ phase: 'idle' }) }
   return { state, start, cancel }
 }
 
@@ -192,7 +207,7 @@ function MapPage({ pois, owners, position, setPosition, selected, setSelectedId,
     : null
   const inRange = dist != null && dist <= CHECKIN_RADIUS_M
   const cs = checkin.state
-  const running = cs.phase === 'running'
+  const running = cs.phase === 'running' || cs.phase === 'starting'
 
   function claim() {
     if (!inRange) return flash(position ? `Jsi mimo dosah (${formatDistance(dist)}, potřeba do ${CHECKIN_RADIUS_M} m).` : 'Neznám tvoji polohu.')
@@ -221,7 +236,8 @@ function MapPage({ pois, owners, position, setPosition, selected, setSelectedId,
 
       {(running || cs.phase === 'done' || (cs.phase === 'error' && cs.poiId === sel?.id)) && (
         <div className="overlay checkin">
-          {running && (
+          {cs.phase === 'starting' && <><b>{cs.name}</b><br />Zahajuji check-in…</>}
+          {cs.phase === 'running' && (
             <>
               <b>{cs.name}</b><br />
               <progress max={cs.required} value={cs.elapsed} /> {cs.elapsed} / {cs.required} s

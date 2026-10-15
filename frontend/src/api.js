@@ -35,7 +35,7 @@ async function http(method, path, body) {
   if (!res.ok) {
     // Neplatný hráčský token (např. restart backendu v paměťovém režimu) -> App pošle hráče na onboarding.
     if (res.status === 401 && token) window.dispatchEvent(new Event('turistak-unauthorized'))
-    throw new Error(data.error?.message || data.message || `HTTP ${res.status}`)
+    throw Object.assign(new Error(data.error?.message || data.message || `HTTP ${res.status}`), { code: data.error?.code, status: res.status })
   }
   return data
 }
