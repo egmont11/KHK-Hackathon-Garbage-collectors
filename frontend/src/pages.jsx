@@ -238,6 +238,15 @@ export function LeaderboardPage({ season, myTeam, myId }) {
 }
 
 // --- Questy: týdenní týmové (soutěží všechny týmy) + můj denní ---
+// „Denní úkol: zaber …“ – kategorie denního questu ve 4. pádě jednotného čísla (backend/src/events.ts dailyBonusCategories).
+const DAILY_TARGET = {
+  rozhledny: 'rozhlednu nebo vyhlídku', hrady: 'hrad', zamky: 'zámek', pevnosti: 'pevnost', muzea: 'muzeum nebo galerii',
+  priroda: 'přírodní zajímavost', cirkevni: 'církevní památku', technicke: 'technickou památku', architektura: 'architektonickou památku',
+  historicke: 'historickou památku', zidovske: 'židovskou památku', zvony: 'místo se zvony na Broumovsku', pivovary: 'pivovar',
+  potraviny: 'místo s regionálními potravinami', remesla: 'místo s řemeslnými výrobky', lanovky: 'lanovku', koupani: 'místo na koupání',
+  divadla: 'divadlo nebo filharmonii', cyklovylety: 'start cyklovýletu',
+}
+
 function QuestStandings({ players, leader }) {
   const max = Math.max(1, ...Object.values(players || {}))
   return (
@@ -272,11 +281,11 @@ export function EventsPage({ poiById, position, visited, onShow }) {
         <div className={`quest daily${daily.completed ? ' done' : ''}`}>
           <span className="mult">{daily.completed ? <Icon name="check" /> : `×${String(daily.multiplier).replace('.', ',')}`}</span>
           <div className="quest-body">
-            <b>Dnes: {daily.category_label}</b>
+            <b>Denní úkol: zaber {DAILY_TARGET[daily.category] || daily.category_label}</b>
             <small>
               {daily.completed
                 ? <span><Icon name="check_circle" /> Splněno (+{daily.completed_points} b.)</span>
-                : <span><Icon name="person" /> Tvůj denní quest · zaber jedno místo</span>}
+                : <span><Icon name="person" /> jen pro tebe</span>}
               <span><Icon name="schedule" /> do {fmtDateTime(daily.ends_at)}</span>
             </small>
           </div>
@@ -284,7 +293,6 @@ export function EventsPage({ poiById, position, visited, onShow }) {
       )}
 
       <h3 className="section">Týdenní souboj týmů</h3>
-      <p className="muted"><Icon name="emoji_events" /> Tým, jehož nejvíc hráčů místo do konce týdne zabere, získá body navíc.</p>
       {quests?.weekly?.map((e) => {
         const poi = poiById.get(e.poi_id)
         if (!poi) return null

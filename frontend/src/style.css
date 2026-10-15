@@ -521,3 +521,11 @@ h3.section { font-size: 20px; margin: 22px 0 10px; }
 .password-row .name-input { flex: 1; padding-right: 52px; min-width: 0; }
 .password-row .round-btn { position: absolute; right: 4px; top: 3px; color: var(--muted); }
 .back-btn { align-self: center; }
+
+/* ---------- Onboarding: návod na přidání na plochu ---------- */
+.install-guide { display: flex; flex-direction: column; gap: 14px; }
+.install-lead { margin: 0; color: var(--muted); font-weight: 500; }
+.install-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.install-steps li { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: var(--r); background: var(--card); font-weight: 600; }
+.install-icon { display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; border-radius: var(--r); background: var(--ink); color: var(--card); }
+.install-icon .material-symbols-rounded { font-size: 22px; }

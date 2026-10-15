@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import MapView from './MapView.jsx'
 import { api } from './api.js'
 import { CheckinOverlay } from './checkin.jsx'
+import { InstallGuide, isStandalone } from './install.jsx'
 import { TEAMS, distanceM, formatDistance } from './geo.js'
 import { GROUPS, groupIcon } from './groups.js'
 import { checkinRadius, useCheckin, useGame, useOnline, usePosition } from './hooks.js'
@@ -314,7 +315,8 @@ const MIN_PASSWORD = 6
 
 function Onboarding({ onDone, kicked }) {
   const [mode, setMode] = useState('new') // new | login
-  const [step, setStep] = useState('account') // account | team
+  const [step, setStep] = useState('account') // account | team | install
+  const [donePlayer, setDonePlayer] = useState(null)
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -328,7 +330,10 @@ function Onboarding({ onDone, kicked }) {
     const player = { player_id, name: n, team: t }
     localStorage.setItem('krajanek-token', token)
     localStorage.setItem('krajanek-player', JSON.stringify(player))
-    onDone(player)
+    // Návod na přidání na plochu, pokud appka neběží z plochy.
+    if (isStandalone()) return onDone(player)
+    setDonePlayer(player)
+    setStep('install')
   }
 
   async function submitAccount(e) {
@@ -367,6 +372,15 @@ function Onboarding({ onDone, kicked }) {
       <h1>Krajánek</h1>
     </div>
   )
+
+  if (step === 'install') {
+    return (
+      <div className="onboarding">
+        {brand}
+        <InstallGuide onDone={() => onDone(donePlayer)} />
+      </div>
+    )
+  }
 
   if (step === 'team') {
     return (
