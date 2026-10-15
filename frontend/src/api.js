@@ -61,13 +61,17 @@ function load() {
   }
   return s
 }
+// crypto.randomUUID je jen v secure contextu (HTTPS/localhost), přes http://<ip> v síti chybí.
+function randomId() {
+  return [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
 const save = (s) => localStorage.setItem(KEY, JSON.stringify(s))
 const me = (s) => s.players[localStorage.getItem('turistak-token')]
 
 const mock = {
   async createPlayer({ name, team }) {
     const s = load()
-    const token = crypto.randomUUID()
+    const token = randomId()
     s.players[token] = { player_id: token.slice(0, 8), name, team }
     save(s)
     return { player_id: s.players[token].player_id, token }
@@ -82,7 +86,7 @@ const mock = {
     const poi = (await loadPois()).find((f) => f.properties.id === poi_id)
     const [plon, plat] = poi.geometry.coordinates
     if (distanceM(lat, lon, plat, plon) > RULES.radius_m) throw new Error('Jsi dál než 100 m od místa.')
-    const id = crypto.randomUUID().slice(0, 8)
+    const id = randomId().slice(0, 8)
     s.checkins[id] = { id, poi_id, player_id: player.player_id, team: player.team, plat, plon, pings: [], awarded_points: 0 }
     save(s)
     await mock.ping(id, { lat, lon, accuracy_m })
