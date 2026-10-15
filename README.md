@@ -5,6 +5,7 @@ Hra nad otevřenými daty Královéhradeckého kraje: tým dobývá body zájmu 
 
 - [PLAN.md](PLAN.md): plán pro tým (krátký)
 - [AGENTS.md](AGENTS.md): podrobné zadání pro AI agenty
+- [ROZDELENI.md](ROZDELENI.md): kdo co dělá
 - [docs/data-khk-prehled.md](docs/data-khk-prehled.md): přehled dostupných dat
 
 
