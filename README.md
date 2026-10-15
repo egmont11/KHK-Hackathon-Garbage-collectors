@@ -1,1 +1,3 @@
-# KHK-Hackathon-Garbage-collectors
+# Gamifikace turismu
+*Tým Garbage Collectors*
+
