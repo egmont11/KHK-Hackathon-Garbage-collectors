@@ -19,6 +19,7 @@ import time
 import unicodedata
 import urllib.parse
 import urllib.request
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -101,6 +102,7 @@ OPTIONAL = {"valecne_hroby"}
 BUS_SERVICE = "Autobusové_zastávky_IREDO"
 TRAIN_SERVICE = "Železniční_stanice_a_zastávky_VDKHK"
 BORDER_SERVICE = "Hranice_Královéhradeckého_kraje"
+ORP_RE = re.compile(r"52\d\d")  # kódy ORP v KHK: 5201–5215
 
 
 # --- Stahování ----------------------------------------------------------------
@@ -400,14 +402,49 @@ def load_stops(offline):
         lon, lat = f["geometry"]["coordinates"]
         stops.append({"id": f"bus:{p['OBJECTID']}", "name": clean_text(p["nazev"]), "type": "bus",
                       "lat": round(lat, 6), "lon": round(lon, 6),
-                      "municipality": clean_text(p.get("nazev_obce")), "platform": as_code(p.get("stanoviste"))})
+                      "municipality": clean_text(p.get("nazev_obce")), "municipality_code": as_code(p.get("kod_obce")),
+                      "orp_code": as_code(p.get("kod_orp")), "platform": as_code(p.get("stanoviste"))})
     for f in fetch_layer(TRAIN_SERVICE, offline):
         p = f["properties"]
         lon, lat = f["geometry"]["coordinates"]
         stops.append({"id": f"train:{p['OBJECTID']}", "name": clean_text(p["nazev"]), "type": "train",
                       "lat": round(lat, 6), "lon": round(lon, 6),
-                      "municipality": clean_text(p.get("nazev_obce")), "platform": None})
+                      "municipality": clean_text(p.get("nazev_obce")), "municipality_code": as_code(p.get("kod_obce")),
+                      "orp_code": as_code(p.get("kod_orp")), "platform": None})
     return [s for s in stops if s["name"]]
+
+
+def fix_admin_codes(pois, stops):
+    """Opraví orp_code (a doplní chybějící obec) podle zastávek.
+
+    Zdrojové sady mají v kod_orp chyby: Pivovary tam mají kód okresu (CZ0522),
+    Rozhledny kód obce, pobočky knihovny v HK kódy ORP jiných měst, Cyklovýlety
+    obec vůbec nemají. Zastávky (≈4 700 bodů) jsou konzistentní, takže z nich
+    vezmeme obec → ORP většinovým hlasem a POI bez obce dostanou obec
+    i ORP z nejbližší zastávky, obec bez zastávek jen ORP."""
+    votes = {}
+    for s in stops:
+        if s["municipality_code"] and s["orp_code"] and ORP_RE.fullmatch(s["orp_code"]):
+            votes.setdefault(s["municipality_code"], Counter())[s["orp_code"]] += 1
+    obec_orp = {k: v.most_common(1)[0][0] for k, v in votes.items()}
+    names = {s["municipality_code"]: s["municipality"] for s in stops if s["municipality_code"]}
+    grid = Grid([(s["lat"], s["lon"], s) for s in stops if s["municipality_code"] in obec_orp])
+    fixed = filled = 0
+    for p in pois:
+        orp = obec_orp.get(p["municipality_code"])
+        if not orp:  # obec bez zastávky (Brada-Rybníček) nebo chybí úplně (cyklovýlety)
+            hit = grid.nearest(p["lat"], p["lon"])
+            if hit:
+                s = hit[0][2]
+                orp = obec_orp[s["municipality_code"]]
+                if not p["municipality_code"]:
+                    p["municipality_code"] = s["municipality_code"]
+                    p["municipality"] = p["municipality"] or names[s["municipality_code"]]
+                    filled += 1
+        if orp and orp != p["orp_code"]:
+            p["orp_code"] = orp
+            fixed += 1
+    print(f"ORP opraveno: {fixed}, obec doplněna z nejbližší zastávky: {filled}")
 
 
 def idos_url(stop_name):
@@ -471,6 +508,7 @@ def validate(pois):
     errors += [f"body mimo 10–100: {p['id']}" for p in pois if not 10 <= p["points"] <= 100]
     errors += [f"mimo bbox: {p['id']}" for p in pois if not (x0 <= p["lon"] <= x1 and y0 <= p["lat"] <= y1)]
     errors += [f"bez zastávky: {p['id']}" for p in pois if not p["nearest_stop"]]
+    errors += [f"neplatné ORP: {p['id']} {p['orp_code']}" for p in pois if not ORP_RE.fullmatch(p["orp_code"] or "")]
     if errors:
         raise SystemExit("VALIDACE SELHALA:\n  " + "\n  ".join(errors[:20]))
 
@@ -494,6 +532,7 @@ def main():
     print("Zastávky:")
     stops = load_stops(args.offline)
     print(f"  bus {sum(s['type'] == 'bus' for s in stops)}, vlak {sum(s['type'] == 'train' for s in stops)}")
+    fix_admin_codes(pois, stops)
     attach_stops(pois, stops)
     score(pois)
     validate(pois)
@@ -501,7 +540,8 @@ def main():
     pois.sort(key=lambda p: p["id"])
     write_geojson(DATA / "poi.geojson", [to_feature(p, POI_KEYS) for p in pois])
     write_geojson(DATA / "stops.geojson",
-                  [to_feature(s, ["id", "name", "type", "municipality", "platform"]) for s in stops])
+                  [to_feature(s, ["id", "name", "type", "municipality", "municipality_code", "orp_code", "platform"])
+                   for s in stops])
 
     pts = sorted(p["points"] for p in pois)
     print(f"\nHotovo: {len(pois)} POI (NKP {sum(p['is_nkp'] for p in pois)}), {len(stops)} zastávek")
