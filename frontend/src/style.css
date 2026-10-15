@@ -461,3 +461,5 @@ h3.section { font-size: 20px; margin: 22px 0 10px; }
 @media (prefers-reduced-motion: reduce) {
   .pin.bonus, .badge-chip, .stamp, .pin.selected { animation: none; opacity: 1; }
 }
+/* zvednuté tlačítko Questy zasahuje 26 px nad nav bar, ať nepřekrývá text lišty */
+.banners .banner:last-child { padding-bottom: 46px; }
