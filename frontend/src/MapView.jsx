@@ -1,0 +1,73 @@
+import { useEffect, useRef } from 'react'
+import L from 'leaflet'
+import 'leaflet.markercluster'
+import { TEAMS } from './geo.js'
+
+const KHK_CENTER = [50.35, 15.85]
+
+function poiIcon(owner, selected) {
+  const color = owner ? TEAMS[owner].color : '#777'
+  const size = selected ? 18 : 12
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 2px #000"></div>`,
+    iconSize: [size, size],
+  })
+}
+
+export default function MapView({ pois, owners, selectedId, onSelect, position, demo, onDemoClick }) {
+  const elRef = useRef(null)
+  const mapRef = useRef(null)
+  const clusterRef = useRef(null)
+  const meRef = useRef(null)
+  const handlers = useRef({})
+  handlers.current = { onSelect, onDemoClick }
+
+  useEffect(() => {
+    const map = L.map(elRef.current).setView(KHK_CENTER, 9)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(map)
+    clusterRef.current = L.markerClusterGroup({ disableClusteringAtZoom: 15 }).addTo(map)
+    map.on('click', (e) => {
+      if (demo) handlers.current.onDemoClick?.(e.latlng.lat, e.latlng.lng)
+    })
+    mapRef.current = map
+    return () => map.remove()
+  }, [demo])
+
+  useEffect(() => {
+    const cluster = clusterRef.current
+    cluster.clearLayers()
+    const markers = pois.map((f) => {
+      const [lon, lat] = f.geometry.coordinates
+      const p = f.properties
+      const m = L.marker([lat, lon], { icon: poiIcon(owners[p.id], p.id === selectedId), title: p.name })
+      m.on('click', () => handlers.current.onSelect(p.id))
+      return m
+    })
+    cluster.addLayers(markers)
+  }, [pois, owners, selectedId])
+
+  useEffect(() => {
+    if (!position) return
+    const ll = [position.lat, position.lon]
+    if (!meRef.current) {
+      meRef.current = L.circleMarker(ll, { radius: 8, color: '#000', fillColor: '#ffeb3b', fillOpacity: 1, interactive: false }).addTo(mapRef.current)
+    } else {
+      meRef.current.setLatLng(ll)
+    }
+  }, [position])
+
+  useEffect(() => {
+    if (!selectedId) return
+    const f = pois.find((x) => x.properties.id === selectedId)
+    if (f) {
+      const [lon, lat] = f.geometry.coordinates
+      mapRef.current.setView([lat, lon], Math.max(mapRef.current.getZoom(), 14))
+    }
+  }, [selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <div ref={elRef} className="map" />
+}
