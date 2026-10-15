@@ -6,7 +6,10 @@ import type { Checkin, Poi, TeamId } from "./types.js";
 /** Team battle at one place in one season: check-ins (owner) and points (topTeam) per team. */
 type Ownership = { counts: Record<TeamId, number>; owner: TeamId; points: Record<TeamId, number>; topTeam: TeamId };
 
-export type Player = { id: string; name: string; team: TeamId; token: string; createdAt: number };
+export type Player = { id: string; name: string; team: TeamId; token: string; createdAt: number; passwordHash: string | null };
+
+/** Login name key: case- and accent-form-insensitive, trimmed. */
+export const nameKey = (name: string) => name.normalize("NFC").trim().toLocaleLowerCase("cs");
 export type Season = { id: string; startsAt: number; endsAt: number };
 /** Anonymous visit record used for statistics: no player id, no route. */
 export type Visit = { poiId: string; category: string; group: string; orpCode: string | null; team: TeamId; points: number; at: number; seasonId: string };
@@ -24,6 +27,7 @@ export class MemoryStore {
   resumeSeason: Season | null = null;
   private readonly used = new Set<string>();
   private readonly byToken = new Map<string, Player>();
+  private readonly byName = new Map<string, Player>();
   private readonly visitCounts = new Map<string, number>();
   private readonly lastVisit = new Map<string, { team: TeamId; at: number }>();
   /**
@@ -41,9 +45,10 @@ export class MemoryStore {
     if (!this.pool) return;
     await this.pool.query("DELETE FROM checkins WHERE finished_at IS NULL");
     await this.prunePingsInDb();
-    const players = await this.pool.query("SELECT id, name, team, token, created_at FROM players");
+    const players = await this.pool.query("SELECT id, name, team, token, created_at, password_hash FROM players");
     for (const row of players.rows) this.indexPlayer({
       id: row.id, name: row.name, team: row.team as TeamId, token: row.token, createdAt: new Date(row.created_at).getTime(),
+      passwordHash: row.password_hash ?? null,
     });
     const scores = await this.pool.query("SELECT season_id, team, score FROM team_scores");
     for (const row of scores.rows) {
@@ -124,13 +129,19 @@ export class MemoryStore {
   private indexPlayer(player: Player) {
     this.players.set(player.id, player);
     this.byToken.set(player.token, player);
+    if (!this.byName.has(nameKey(player.name)) || player.passwordHash) this.byName.set(nameKey(player.name), player);
   }
 
-  async addPlayer(name: string, team: TeamId): Promise<Player> {
-    const player = { id: randomUUID(), name, team, token: randomUUID(), createdAt: Date.now() };
+  /** Player by login name (case-insensitive). */
+  playerByName(name: string): Player | undefined {
+    return this.byName.get(nameKey(name));
+  }
+
+  async addPlayer(name: string, team: TeamId, passwordHash: string | null = null): Promise<Player> {
+    const player: Player = { id: randomUUID(), name, team, token: randomUUID(), createdAt: Date.now(), passwordHash };
     if (this.pool) await this.pool.query(
-      "INSERT INTO players (id, name, team, token, created_at) VALUES ($1, $2, $3, $4, $5)",
-      [player.id, player.name, player.team, player.token, new Date(player.createdAt).toISOString()],
+      "INSERT INTO players (id, name, team, token, created_at, password_hash) VALUES ($1, $2, $3, $4, $5, $6)",
+      [player.id, player.name, player.team, player.token, new Date(player.createdAt).toISOString(), passwordHash],
     );
     this.indexPlayer(player);
     return player;
@@ -311,8 +322,8 @@ export class MemoryStore {
     const demoPlayers: Player[] = [];
     for (let i = 0; i < Math.max(12, Math.round(count / 15)); i++) {
       const team = teamIds[i % 3];
-      const player = { id: randomUUID(), name: `${names[i % names.length]} ${i + 1}`, team, token: `demo-${randomUUID()}`, createdAt: now };
-      this.players.set(player.id, player);
+      const player: Player = { id: randomUUID(), name: `${names[i % names.length]} ${i + 1}`, team, token: `demo-${randomUUID()}`, createdAt: now, passwordHash: null };
+      this.indexPlayer(player);
       demoPlayers.push(player);
     }
     // Popular (low-point) places are visited more, with a cluster bias towards a few hot spots.

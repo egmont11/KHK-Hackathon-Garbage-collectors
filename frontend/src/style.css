@@ -463,3 +463,12 @@ h3.section { font-size: 20px; margin: 22px 0 10px; }
 }
 /* zvednuté tlačítko Questy zasahuje 26 px nad nav bar, ať nepřekrývá text lišty */
 .banners .banner:last-child { padding-bottom: 46px; }
+
+/* ---------- Onboarding: účet (nový / přihlášení) ---------- */
+.mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: var(--r); background: var(--card); border: 1.5px solid var(--line); }
+.mode-switch button { height: 40px; border-radius: 6px; font-weight: 700; color: var(--muted); }
+.mode-switch button.active { background: var(--ink); color: var(--card); }
+.password-row { position: relative; display: flex; }
+.password-row .name-input { flex: 1; padding-right: 52px; min-width: 0; }
+.password-row .round-btn { position: absolute; right: 4px; top: 3px; color: var(--muted); }
+.back-btn { align-self: center; }

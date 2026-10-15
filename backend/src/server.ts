@@ -6,7 +6,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { config, groupLabels, orpNames, teamIds, teams, type TeamId } from "./config.js";
 import { badgeDefinitions, badgesFor, newlyEarned } from "./badges.js";
-import { AdminStore, generatePassword, passwordProblem, verifyPassword, type Admin } from "./auth.js";
+import { AdminStore, generatePassword, hashPassword, passwordProblem, verifyPassword, type Admin } from "./auth.js";
 import { EventManager, type Bonus, type QuickEvent } from "./events.js";
 import { distanceM, validCoordinates } from "./geo.js";
 import { publicSeason, SeasonManager } from "./seasons.js";
@@ -273,14 +273,47 @@ app.get<{ Params: { id: string } }>("/api/poi/:id", async (request, reply) => {
   };
 });
 
-app.post<{ Body: { name?: string; team?: string } }>("/api/players", async (request, reply) => {
+// --- Hráčské účty: jméno + heslo (scrypt). Token z odpovědi slouží k automatickému přihlášení. ---
+const PLAYER_MIN_PASSWORD = 6;
+const playerLoginFailures = new Map<string, { count: number; until: number }>();
+const playerDummyHash = hashPassword(randomUUID());
+const playerLockedFor = (client: string) => {
+  const entry = playerLoginFailures.get(client);
+  return entry && entry.until > Date.now() ? Math.ceil((entry.until - Date.now()) / 1000) : 0;
+};
+const publicPlayer = (player: Player) => ({ player_id: player.id, token: player.token, name: player.name, team: player.team });
+
+app.post<{ Body: { name?: string; team?: string; password?: string } }>("/api/players", async (request, reply) => {
   const rawName = request.body?.name;
   const name = typeof rawName === "string" ? rawName.trim() : "";
   const team = request.body?.team;
+  const password = request.body?.password;
   if (!name || name.length > 40) return fail(reply, 400, "INVALID_NAME", "Jméno musí mít 1 až 40 znaků.");
+  if (typeof password !== "string" || password.length < PLAYER_MIN_PASSWORD || password.length > 200) {
+    return fail(reply, 400, "INVALID_PASSWORD", `Heslo musí mít aspoň ${PLAYER_MIN_PASSWORD} znaků.`);
+  }
   if (typeof team !== "string" || !Object.hasOwn(teams, team)) return fail(reply, 400, "INVALID_TEAM", "Tým musí být hory, reky, nebo lesy.");
-  const player = await store.addPlayer(name, team as TeamId);
-  return reply.code(201).send({ player_id: player.id, token: player.token, name: player.name, team: player.team });
+  if (store.playerByName(name)) return fail(reply, 409, "NAME_TAKEN", "Tohle jméno už někdo má. Zvol jiné, nebo se přihlas.");
+  const player = await store.addPlayer(name, team as TeamId, await hashPassword(password));
+  return reply.code(201).send(publicPlayer(player));
+});
+
+app.post<{ Body: { name?: string; password?: string } }>("/api/players/login", async (request, reply) => {
+  const locked = playerLockedFor(request.ip);
+  if (locked) return reply.code(429).header("retry-after", String(locked)).send({ error: { code: "TOO_MANY_ATTEMPTS", message: `Příliš mnoho pokusů. Zkus to za ${locked} s.` } });
+  const name = typeof request.body?.name === "string" ? request.body.name : "";
+  const password = typeof request.body?.password === "string" ? request.body.password : "";
+  const player = name ? store.playerByName(name) : undefined;
+  // Vždy spočítat scrypt, ať neznámé jméno trvá stejně dlouho jako špatné heslo.
+  const ok = player?.passwordHash ? await verifyPassword(password, player.passwordHash) : (await verifyPassword(password, await playerDummyHash), false);
+  if (!player || !ok) {
+    const entry = playerLoginFailures.get(request.ip);
+    const count = (entry && entry.until > Date.now() - 60_000 ? entry.count : 0) + 1;
+    playerLoginFailures.set(request.ip, { count, until: count >= 5 ? Date.now() + 60_000 : Date.now() });
+    return fail(reply, 401, "INVALID_CREDENTIALS", "Špatné jméno nebo heslo.");
+  }
+  playerLoginFailures.delete(request.ip);
+  return publicPlayer(player);
 });
 
 app.get("/api/players/me", async (request, reply) => {

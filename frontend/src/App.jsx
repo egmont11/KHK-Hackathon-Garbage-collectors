@@ -297,54 +297,122 @@ function Filters({ pois, filters, setFilters, count, position }) {
   )
 }
 
+// Onboarding ve dvou krocích: 1) účet (nový hráč / přihlášení jménem a heslem), 2) tým (jen nový hráč).
+const MIN_PASSWORD = 6
+
 function Onboarding({ onDone, kicked }) {
+  const [mode, setMode] = useState('new') // new | login
+  const [step, setStep] = useState('account') // account | team
   const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [team, setTeam] = useState(null)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
-  async function submit(e) {
+
+  const accountOk = name.trim() && password.length >= (mode === 'new' ? MIN_PASSWORD : 1)
+
+  function finish({ player_id, token, name: n, team: t }) {
+    const player = { player_id, name: n, team: t }
+    localStorage.setItem('krajanek-token', token)
+    localStorage.setItem('krajanek-player', JSON.stringify(player))
+    onDone(player)
+  }
+
+  async function submitAccount(e) {
     e.preventDefault()
-    if (!team || !name.trim()) return
-    setBusy(true)
+    if (!accountOk) return
     setError(null)
+    if (mode === 'new') return setStep('team')
+    setBusy(true)
     try {
-      const { player_id, token } = await api.createPlayer({ name: name.trim(), team })
-      const player = { player_id, name: name.trim(), team }
-      localStorage.setItem('krajanek-token', token)
-      localStorage.setItem('krajanek-player', JSON.stringify(player))
-      onDone(player)
+      finish(await api.login({ name: name.trim(), password }))
     } catch (err) {
       setError(err.message)
     } finally {
       setBusy(false)
     }
   }
+
+  async function submitTeam(e) {
+    e.preventDefault()
+    if (!team) return
+    setBusy(true)
+    setError(null)
+    try {
+      finish(await api.createPlayer({ name: name.trim(), team, password }))
+    } catch (err) {
+      setError(err.message)
+      if (err.code === 'NAME_TAKEN' || err.code === 'INVALID_NAME' || err.code === 'INVALID_PASSWORD') setStep('account')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const brand = (
+    <div className="onboarding-brand">
+      <KctMark team={team || 'lesy'} />
+      <h1>Krajánek</h1>
+    </div>
+  )
+
+  if (step === 'team') {
+    return (
+      <form className="onboarding" onSubmit={submitTeam} style={{ '--team': team ? TEAMS[team].color : undefined }}>
+        {brand}
+        <div className="field">
+          <span>Vyber tým, {name.trim()}</span>
+          <div className="team-pick">
+            {Object.entries(TEAMS).map(([id, t]) => (
+              <button type="button" key={id} className={`team-card${team === id ? ' active' : ''}`} style={{ '--c': t.color }}
+                onClick={() => setTeam(id)} aria-pressed={team === id} disabled={busy}>
+                <TeamIcon team={id} size={44} />
+                <KctMark team={id} className="big" />
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <button className="play" disabled={busy || !team}>
+          {busy ? 'Zakládám…' : <>Hrát <Icon name="arrow_forward" /></>}
+        </button>
+        <button type="button" className="text-btn back-btn" onClick={() => { setError(null); setStep('account') }} disabled={busy}>
+          <Icon name="arrow_back" /> Zpět
+        </button>
+        {error && <p className="err">{error}</p>}
+      </form>
+    )
+  }
+
   return (
-    <form className="onboarding" onSubmit={submit} style={{ '--team': team ? TEAMS[team].color : undefined }}>
-      <div className="onboarding-brand">
-        <KctMark team={team || 'lesy'} />
-        <h1>Krajánek</h1>
+    <form className="onboarding" onSubmit={submitAccount}>
+      {brand}
+      {kicked && <p className="err">Server tvůj účet nezná. Přihlas se znovu, případně si založ nový účet.</p>}
+      <div className="mode-switch" role="tablist">
+        <button type="button" role="tab" aria-selected={mode === 'new'} className={mode === 'new' ? 'active' : ''}
+          onClick={() => { setMode('new'); setError(null) }}>Nový hráč</button>
+        <button type="button" role="tab" aria-selected={mode === 'login'} className={mode === 'login' ? 'active' : ''}
+          onClick={() => { setMode('login'); setError(null) }}>Přihlásit se</button>
       </div>
-      {kicked && <p className="err">Server tvůj účet nezná (nejspíš se restartoval). Založ si hráče znovu.</p>}
       <label className="field">
         <span>Jméno</span>
-        <input className="name-input" required maxLength={40} autoComplete="nickname" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
+        <input className="name-input" required maxLength={40} autoComplete="username" value={name}
+          onChange={(e) => setName(e.target.value)} disabled={busy} />
       </label>
-      <div className="field">
-        <span>Tým</span>
-        <div className="team-pick">
-          {Object.entries(TEAMS).map(([id, t]) => (
-            <button type="button" key={id} className={`team-card${team === id ? ' active' : ''}`} style={{ '--c': t.color }}
-              onClick={() => setTeam(id)} aria-pressed={team === id} disabled={busy}>
-              <TeamIcon team={id} size={44} />
-              <KctMark team={id} className="big" />
-              <span>{t.label}</span>
-            </button>
-          ))}
+      <label className="field">
+        <span>Heslo{mode === 'new' && ` (aspoň ${MIN_PASSWORD} znaků)`}</span>
+        <div className="password-row">
+          <input className="name-input" required type={showPassword ? 'text' : 'password'} maxLength={200}
+            autoComplete={mode === 'new' ? 'new-password' : 'current-password'} value={password}
+            onChange={(e) => setPassword(e.target.value)} disabled={busy} />
+          <button type="button" className="round-btn ghost" onClick={() => setShowPassword(!showPassword)}
+            aria-label={showPassword ? 'Skrýt heslo' : 'Zobrazit heslo'}>
+            <Icon name={showPassword ? 'visibility_off' : 'visibility'} />
+          </button>
         </div>
-      </div>
-      <button className="play" disabled={busy || !team || !name.trim()}>
-        {busy ? 'Zakládám…' : <>Hrát <Icon name="arrow_forward" /></>}
+      </label>
+      <button className="play" disabled={busy || !accountOk}>
+        {busy ? 'Přihlašuji…' : mode === 'new' ? <>Pokračovat <Icon name="arrow_forward" /></> : <>Přihlásit <Icon name="login" /></>}
       </button>
       {error && <p className="err">{error}</p>}
     </form>
