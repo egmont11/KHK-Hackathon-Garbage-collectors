@@ -1,19 +1,52 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
 import { config } from "./config.js";
-import type { Poi } from "./types.js";
+import { distanceM } from "./geo.js";
+import type { Coordinates, Poi } from "./types.js";
 
-export type QuickEvent = {
-  id: string;
-  type: "bonus_poi";
-  poi_id: string;
-  multiplier: number;
-  startsAt: number;
-  endsAt: number;
-};
+/**
+ * Quick time events (working name), the same for every player:
+ * - weekly: a few bonus POIs at least WEEKLY_MIN_DISTANCE_KM apart, ×2,
+ * - daily: one category of places (e.g. lookout towers), ×1.4 at every POI of that category.
+ * Picks are deterministic per round, so restarts and multiple instances agree without a scheduler.
+ * When both apply to one POI, the higher multiplier wins (they don't stack).
+ */
 
-/** Monday 2024-01-01 00:00 UTC, so weekly rounds start on Mondays. */
-const EPOCH = Date.UTC(2024, 0, 1);
+export type WeeklyEvent = { id: string; type: "weekly_poi"; poiId: string; multiplier: number; startsAt: number; endsAt: number };
+export type DailyEvent = { id: string; type: "daily_category"; category: string; multiplier: number; startsAt: number; endsAt: number };
+export type QuickEvent = WeeklyEvent | DailyEvent;
+export type Bonus = { multiplier: number; event: QuickEvent | null };
+
+/** Categories eligible for the daily bonus (×1.4 at every place of the category). */
+export const dailyBonusCategories = [
+  "rozhledny", "hrady", "zamky", "pevnosti", "muzea", "priroda", "cirkevni", "technicke", "architektura", "historicke",
+  "zidovske", "zvony", "pivovary", "potraviny", "remesla", "lanovky", "koupani", "divadla", "cyklovylety",
+];
+
+/** Places that make poor weekly destinations (hotels, libraries, info desks). */
+const weeklyExcludedCategories = new Set(["sluzby", "knihovny", "infocentra", "kempy", "lazne", "solne_jeskyne"]);
+
+/** Monday 2024-01-01, local midnight. Rounds are counted in Prague local time from here. */
+const EPOCH_LOCAL = Date.UTC(2024, 0, 1);
+
+function pragueOffsetMs(at: number): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Prague", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date(at));
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const local = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return local - Math.floor(at / 1000) * 1000;
+}
+
+/** Round index and its UTC bounds; full days are aligned to Prague midnight, demo rounds to UTC. */
+function roundAt(now: number, lengthS: number) {
+  const length = lengthS * 1000;
+  const aligned = lengthS % 86400 === 0;
+  const local = aligned ? now + pragueOffsetMs(now) : now;
+  const index = Math.floor((local - EPOCH_LOCAL) / length);
+  const toUtc = (localMs: number) => aligned ? localMs - pragueOffsetMs(localMs - pragueOffsetMs(localMs)) : localMs;
+  return { index, startsAt: toUtc(EPOCH_LOCAL + index * length), endsAt: toUtc(EPOCH_LOCAL + (index + 1) * length) };
+}
 
 function seededRandom(seed: string) {
   let state = createHash("sha1").update(seed).digest().readUInt32LE(0);
@@ -25,64 +58,110 @@ function seededRandom(seed: string) {
   };
 }
 
+function shuffled<T>(items: T[], rand: () => number): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 function uuidFrom(seed: string) {
   const hex = createHash("sha1").update(seed).digest("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
-/**
- * Quick time events: every round (a week, or a fraction of a demo season) a few POIs
- * become bonus POIs worth 2–3× points. Picks are deterministic per round, so restarts
- * and multiple instances agree without any scheduler.
- */
 export class EventManager {
-  private cache: { round: number; events: QuickEvent[] } | null = null;
-  private readonly candidates: Poi[];
+  private weeklyCache: { round: number; events: WeeklyEvent[] } | null = null;
+  private dailyCache: { round: number; event: DailyEvent | null } | null = null;
+  private readonly weeklyCandidates: (Poi & Coordinates)[];
+  private readonly dailyCategories: string[];
+  readonly categoryLabels = new Map<string, string>();
+  readonly categoryCounts = new Map<string, number>();
 
-  constructor(pois: Iterable<Poi>, private readonly pool?: Pool) {
-    // Prefer places worth visiting but not the most crowded ones, sorted for determinism.
-    this.candidates = [...pois].filter((poi) => poi.group !== "sluzby").sort((a, b) => a.id.localeCompare(b.id));
+  constructor(pois: Iterable<Poi>, pointFor: (poiId: string) => Coordinates | undefined, private readonly pool?: Pool) {
+    const all = [...pois].sort((a, b) => a.id.localeCompare(b.id));
+    for (const poi of all) {
+      this.categoryCounts.set(poi.category, (this.categoryCounts.get(poi.category) ?? 0) + 1);
+      this.categoryLabels.set(poi.category, poi.category_label ?? poi.category);
+    }
+    this.weeklyCandidates = all
+      .filter((poi) => poi.group !== "sluzby" && !weeklyExcludedCategories.has(poi.category))
+      .flatMap((poi) => { const point = pointFor(poi.id); return point ? [{ ...poi, ...point }] : []; });
+    // A daily bonus category needs enough places that most players have one within reach.
+    this.dailyCategories = dailyBonusCategories.filter((category) => (this.categoryCounts.get(category) ?? 0) >= 10);
   }
 
-  active(now = Date.now()): QuickEvent[] {
-    if (!config.eventsEnabled || !this.candidates.length) return [];
-    const length = config.eventPeriodSeconds * 1000;
-    const round = Math.floor((now - EPOCH) / length);
-    if (this.cache?.round === round) return this.cache.events;
-    const rand = seededRandom(`turistak-round-${round}-${length}`);
-    const startsAt = EPOCH + round * length;
-    const events: QuickEvent[] = [];
-    const usedGroups = new Set<string>();
-    for (let attempt = 0; attempt < 200 && events.length < config.eventsPerPeriod; attempt++) {
-      const poi = this.candidates[Math.floor(rand() * this.candidates.length)];
-      const group = poi.group ?? "ostatni";
-      if (usedGroups.has(group) || events.some((event) => event.poi_id === poi.id)) continue;
-      usedGroups.add(group);
-      events.push({
-        id: uuidFrom(`${round}:${length}:${poi.id}`),
-        type: "bonus_poi",
-        poi_id: poi.id,
-        multiplier: rand() < 0.3 ? 3 : 2,
-        startsAt,
-        endsAt: startsAt + length,
-      });
+  weekly(now = Date.now()): WeeklyEvent[] {
+    if (!config.eventsEnabled || !this.weeklyCandidates.length || config.weeklyEventCount <= 0) return [];
+    const round = roundAt(now, config.weeklyPeriodSeconds);
+    if (this.weeklyCache?.round === round.index) return this.weeklyCache.events;
+    const order = shuffled(this.weeklyCandidates, seededRandom(`turistak-weekly-${round.index}-${config.weeklyPeriodSeconds}`));
+    // Greedy pick with the minimum spacing; relax it only if the catalog can't satisfy it.
+    let chosen: (Poi & Coordinates)[] = [];
+    for (let minKm = config.weeklyMinDistanceKm; ; minKm *= 0.8) {
+      chosen = [];
+      for (const poi of order) {
+        if (chosen.every((other) => distanceM(poi, other) >= minKm * 1000)) chosen.push(poi);
+        if (chosen.length === config.weeklyEventCount) break;
+      }
+      if (chosen.length === Math.min(config.weeklyEventCount, order.length) || minKm < 0.1) break;
     }
-    this.cache = { round, events };
+    const events = chosen.map((poi): WeeklyEvent => ({
+      id: uuidFrom(`weekly:${round.index}:${config.weeklyPeriodSeconds}:${poi.id}`), type: "weekly_poi", poiId: poi.id,
+      multiplier: config.weeklyMultiplier, startsAt: round.startsAt, endsAt: round.endsAt,
+    }));
+    this.weeklyCache = { round: round.index, events };
     void this.persist(events);
     return events;
   }
 
-  multiplierFor(poiId: string, now = Date.now()): number {
-    return this.active(now).find((event) => event.poi_id === poiId)?.multiplier ?? 1;
+  daily(now = Date.now()): DailyEvent | null {
+    if (!config.eventsEnabled || !this.dailyCategories.length) return null;
+    const round = roundAt(now, config.dailyPeriodSeconds);
+    if (this.dailyCache?.round === round.index) return this.dailyCache.event;
+    const pick = (index: number) => {
+      const rand = seededRandom(`turistak-daily-${index}-${config.dailyPeriodSeconds}`);
+      return this.dailyCategories[Math.floor(rand() * this.dailyCategories.length)];
+    };
+    let category = pick(round.index);
+    // Never the same category two rounds in a row.
+    if (this.dailyCategories.length > 1 && category === pick(round.index - 1)) {
+      category = this.dailyCategories[(this.dailyCategories.indexOf(category) + 1) % this.dailyCategories.length];
+    }
+    const event: DailyEvent = {
+      id: uuidFrom(`daily:${round.index}:${config.dailyPeriodSeconds}:${category}`), type: "daily_category", category,
+      multiplier: config.dailyMultiplier, startsAt: round.startsAt, endsAt: round.endsAt,
+    };
+    this.dailyCache = { round: round.index, event };
+    void this.persist([event]);
+    return event;
+  }
+
+  active(now = Date.now()): QuickEvent[] {
+    const daily = this.daily(now);
+    return [...this.weekly(now), ...(daily ? [daily] : [])];
+  }
+
+  /** Best bonus for a check-in at this POI right now. */
+  bonusFor(poi: Poi, now = Date.now()): Bonus {
+    let best: Bonus = { multiplier: 1, event: null };
+    for (const event of this.active(now)) {
+      const applies = event.type === "weekly_poi" ? event.poiId === poi.id : event.category === poi.category;
+      if (applies && event.multiplier > best.multiplier) best = { multiplier: event.multiplier, event };
+    }
+    return best;
   }
 
   private async persist(events: QuickEvent[]) {
     if (!this.pool) return;
     try {
       for (const event of events) await this.pool.query(
-        `INSERT INTO events (id, type, poi_id, starts_at, ends_at, multiplier) VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO events (id, type, poi_id, category, starts_at, ends_at, multiplier) VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (id) DO NOTHING`,
-        [event.id, event.type, event.poi_id, new Date(event.startsAt).toISOString(), new Date(event.endsAt).toISOString(), event.multiplier],
+        [event.id, event.type, event.type === "weekly_poi" ? event.poiId : null, event.type === "daily_category" ? event.category : null,
+          new Date(event.startsAt).toISOString(), new Date(event.endsAt).toISOString(), event.multiplier],
       );
     } catch (error) {
       console.warn("Nepodařilo se uložit eventy:", error);

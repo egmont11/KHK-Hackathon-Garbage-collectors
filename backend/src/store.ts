@@ -7,6 +7,8 @@ export type Player = { id: string; name: string; team: TeamId; token: string; cr
 export type Season = { id: string; startsAt: number; endsAt: number };
 /** Anonymous visit record used for statistics: no player id, no route. */
 export type Visit = { poiId: string; category: string; group: string; orpCode: string | null; team: TeamId; points: number; at: number; seasonId: string };
+/** One check-in of one player, used for their profile and badges. */
+export type PlayerVisit = { poiId: string; points: number; at: number; eventType: string | null; tookOver: boolean };
 export type SeasonResult = { season_id: string; starts_at: string; ends_at: string; ranking: { team: TeamId; score: number }[] };
 
 export class MemoryStore {
@@ -21,8 +23,14 @@ export class MemoryStore {
   private readonly byToken = new Map<string, Player>();
   private readonly visitCounts = new Map<string, number>();
   private readonly lastVisit = new Map<string, { team: TeamId; at: number }>();
+  /**
+   * Team battles (cosmetic): seasonId -> poiId -> check-ins per team and the owning team.
+   * The team with the most check-ins this season owns the place; on a tie the holder keeps it.
+   * Since a player can check in at a place once per season, this is "most different players".
+   */
+  private readonly ownership = new Map<string, Map<string, { counts: Record<TeamId, number>; owner: TeamId }>>();
   /** seasonId -> playerId -> visited POI ids */
-  private readonly playerVisits = new Map<string, Map<string, { poiId: string; points: number; at: number }[]>>();
+  private readonly playerVisits = new Map<string, Map<string, PlayerVisit[]>>();
 
   constructor(readonly pois: Map<string, Poi>, readonly pool?: Pool) {}
 
@@ -42,7 +50,7 @@ export class MemoryStore {
     }
     const visits = await this.pool.query(`
       SELECT c.id, c.player_id, c.poi_id, c.season_id, c.started_at, c.finished_at,
-             c.awarded_points, p.team
+             c.awarded_points, c.event_type, p.team
       FROM checkins c JOIN players p ON p.id = c.player_id
       WHERE c.valid = true AND c.finished_at IS NOT NULL
       ORDER BY c.finished_at
@@ -51,7 +59,7 @@ export class MemoryStore {
       const poi = this.pois.get(row.poi_id);
       if (!poi) continue;
       const finishedAt = new Date(row.finished_at).getTime();
-      this.recordVisit(row.player_id, row.team as TeamId, poi, row.season_id, Number(row.awarded_points), finishedAt);
+      this.recordVisit(row.player_id, row.team as TeamId, poi, row.season_id, Number(row.awarded_points), finishedAt, row.event_type ?? null);
       this.checkins.set(row.id, {
         id: row.id, playerId: row.player_id, poiId: row.poi_id, seasonId: row.season_id,
         startedAt: new Date(row.started_at).getTime(), finishedAt, valid: true,
@@ -93,7 +101,7 @@ export class MemoryStore {
       for (const old of history) {
         await client.query(`
           INSERT INTO seasons (id, starts_at, ends_at, ranking) VALUES ($1, $2, $3, $4)
-          ON CONFLICT (id) DO UPDATE SET ranking = EXCLUDED.ranking
+          ON CONFLICT (id) DO UPDATE SET ranking = EXCLUDED.ranking, ends_at = EXCLUDED.ends_at
         `, [old.season_id, old.starts_at, old.ends_at, JSON.stringify(old.ranking)]);
       }
       await client.query(`
@@ -163,11 +171,16 @@ export class MemoryStore {
     return this.used.has(`${seasonId}:${playerId}:${poiId}`);
   }
 
-  visitedBy(playerId: string, seasonId: string) {
+  visitedBy(playerId: string, seasonId: string): PlayerVisit[] {
     return this.playerVisits.get(seasonId)?.get(playerId) ?? [];
   }
 
-  private recordVisit(playerId: string, team: TeamId, poi: Poi, seasonId: string, points: number, at: number) {
+  /** Seasons in which the player checked in at least once (for the badge archive). */
+  seasonsOf(playerId: string): string[] {
+    return [...this.playerVisits].filter(([, players]) => players.has(playerId)).map(([seasonId]) => seasonId);
+  }
+
+  private recordVisit(playerId: string, team: TeamId, poi: Poi, seasonId: string, points: number, at: number, eventType: string | null = null): PlayerVisit {
     this.used.add(`${seasonId}:${playerId}:${poi.id}`);
     this.visits.push({
       poiId: poi.id, category: poi.category, group: poi.group ?? "ostatni", orpCode: poi.orp_code ?? null,
@@ -176,11 +189,21 @@ export class MemoryStore {
     this.visitCounts.set(poi.id, (this.visitCounts.get(poi.id) ?? 0) + 1);
     const last = this.lastVisit.get(poi.id);
     if (!last || last.at <= at) this.lastVisit.set(poi.id, { team, at });
+    const seasonOwnership = this.ownership.get(seasonId) ?? new Map();
+    const entry = seasonOwnership.get(poi.id) ?? { counts: { hory: 0, reky: 0, lesy: 0 }, owner: team };
+    const previousOwner = entry.counts[entry.owner] > 0 ? entry.owner : null;
+    entry.counts[team]++;
+    if (entry.counts[team] > entry.counts[entry.owner]) entry.owner = team;
+    const tookOver = previousOwner !== null && previousOwner !== team && entry.owner === team;
+    seasonOwnership.set(poi.id, entry);
+    this.ownership.set(seasonId, seasonOwnership);
     const season = this.playerVisits.get(seasonId) ?? new Map();
     const list = season.get(playerId) ?? [];
-    list.push({ poiId: poi.id, points, at });
+    const visit: PlayerVisit = { poiId: poi.id, points, at, eventType, tookOver };
+    list.push(visit);
     season.set(playerId, list);
     this.playerVisits.set(seasonId, season);
+    return visit;
   }
 
   private addScore(seasonId: string, team: TeamId, points: number) {
@@ -189,7 +212,7 @@ export class MemoryStore {
     this.scores.set(seasonId, scores);
   }
 
-  async award(player: Player, checkin: Checkin, poi: Poi, multiplier = 1): Promise<number> {
+  async award(player: Player, checkin: Checkin, poi: Poi, multiplier = 1, eventType: string | null = null): Promise<number> {
     const points = Math.round(poi.points * multiplier);
     const finishedAt = Date.now();
     if (this.pool) {
@@ -197,8 +220,8 @@ export class MemoryStore {
       try {
         await client.query("BEGIN");
         const updated = await client.query(
-          "UPDATE checkins SET valid = true, awarded_points = $2, finished_at = $3 WHERE id = $1 AND finished_at IS NULL RETURNING id",
-          [checkin.id, points, new Date(finishedAt).toISOString()],
+          "UPDATE checkins SET valid = true, awarded_points = $2, finished_at = $3, event_type = $4 WHERE id = $1 AND finished_at IS NULL RETURNING id",
+          [checkin.id, points, new Date(finishedAt).toISOString(), eventType],
         );
         if (updated.rowCount !== 1) throw new Error("Check-in was already awarded or is missing in PostgreSQL.");
         await client.query(`
@@ -214,13 +237,24 @@ export class MemoryStore {
         client.release();
       }
     }
-    this.recordVisit(player.id, player.team, poi, checkin.seasonId, points, finishedAt);
+    this.recordVisit(player.id, player.team, poi, checkin.seasonId, points, finishedAt, eventType);
     this.addScore(checkin.seasonId, player.team, points);
     checkin.awardedPoints = points;
     checkin.finishedAt = finishedAt;
     checkin.valid = true;
     checkin.pings = [];
     return points;
+  }
+
+  /** Owning team of a place in a season (null = nobody checked in yet). */
+  owner(poiId: string, seasonId: string): { owner: TeamId; counts: Record<TeamId, number> } | null {
+    return this.ownership.get(seasonId)?.get(poiId) ?? null;
+  }
+
+  ownedCounts(seasonId: string): Record<TeamId, number> {
+    const result: Record<TeamId, number> = { hory: 0, reky: 0, lesy: 0 };
+    for (const entry of this.ownership.get(seasonId)?.values() ?? []) result[entry.owner]++;
+    return result;
   }
 
   latestTeam(poiId: string): TeamId | null {
@@ -257,7 +291,12 @@ export class MemoryStore {
    * Demo only: fills memory with synthetic players and visits so the region dashboard
    * and leaderboard have something to show. Never written to PostgreSQL.
    */
-  seedDemo(count: number, seasonId: string, seasonStart: number, now = Date.now()) {
+  seedDemo(count: number, seasonId: string, seasonStart: number, now = Date.now(), bonus?: {
+    /** Category with the daily bonus at a given time (players are nudged towards it). */
+    dailyCategoryAt: (at: number) => string | null;
+    /** Multiplier and event type for a check-in at a place at a given time. */
+    bonusAt: (poi: Poi, at: number) => { multiplier: number; eventType: string | null };
+  }) {
     const pois = [...this.pois.values()];
     if (!pois.length || count <= 0) return;
     let state = 0x2f6b9e1d;
@@ -279,26 +318,37 @@ export class MemoryStore {
     const weights = pois.map((poi) => (appeal[poi.category] ?? 1) / Math.max(10, poi.points) * (poi.is_nkp ? 2 : 1));
     const total = weights.reduce((a, b) => a + b, 0);
     const pick = () => { let r = rand() * total; for (let i = 0; i < pois.length; i++) { r -= weights[i]; if (r <= 0) return pois[i]; } return pois.at(-1)!; };
+    const byCategory = new Map<string, Poi[]>();
+    for (const poi of pois) byCategory.set(poi.category, [...(byCategory.get(poi.category) ?? []), poi]);
     const span = Math.max(1, now - seasonStart);
     const entries: { player: Player; poi: Poi; at: number }[] = [];
     for (let i = 0; i < count; i++) {
       const player = demoPlayers[Math.floor(rand() * demoPlayers.length)];
-      const poi = pick();
       // Spread across the current season, daytime hours, busier at weekends.
       let at = seasonStart + rand() * span;
       const day = new Date(at);
-      if ((day.getUTCDay() === 0 || day.getUTCDay() === 6) === false && rand() < 0.35) at = Math.min(now, at + (6 - day.getUTCDay()) * 86400000);
+      if (day.getUTCDay() !== 0 && day.getUTCDay() !== 6 && rand() < 0.35) {
+        const weekend = at + (6 - day.getUTCDay() + (rand() < 0.5 ? 1 : 0)) * 86_400_000;
+        if (weekend < now - 86_400_000) at = weekend;
+      }
       const date = new Date(at);
       date.setUTCHours(7 + Math.floor((rand() + rand() + rand()) / 3 * 11), Math.floor(rand() * 60));
-      at = Math.min(now - 60_000, date.getTime());
+      at = date.getTime();
+      while (at > now - 60_000) at -= 86_400_000;
       if (at < seasonStart) at = seasonStart + rand() * span;
+      // Some players go after the day's bonus category, so its effect shows on the dashboard.
+      const bonusCategory = bonus?.dailyCategoryAt(at);
+      const candidates = bonusCategory ? byCategory.get(bonusCategory) : undefined;
+      const poi = candidates?.length && rand() < 0.06 ? candidates[Math.floor(rand() * candidates.length)] : pick();
       entries.push({ player, poi, at });
     }
     entries.sort((a, b) => a.at - b.at);
     for (const { player, poi, at } of entries) {
       if (this.hasVisited(player.id, poi.id, seasonId)) continue;
-      this.recordVisit(player.id, player.team, poi, seasonId, poi.points, at);
-      this.addScore(seasonId, player.team, poi.points);
+      const applied = bonus?.bonusAt(poi, at) ?? { multiplier: 1, eventType: null };
+      const points = Math.round(poi.points * applied.multiplier);
+      this.recordVisit(player.id, player.team, poi, seasonId, points, at, applied.eventType);
+      this.addScore(seasonId, player.team, points);
     }
   }
 }

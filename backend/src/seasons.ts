@@ -27,19 +27,37 @@ export class SeasonManager {
     return this.active;
   }
 
+  /** Admin action: finish the running season now and start a new one immediately. */
+  endNow(now = Date.now()): Season {
+    this.active = { ...this.active, endsAt: now };
+    this.manualRestart = true;
+    return this.current(now);
+  }
+
+  private manualRestart = false;
+
   history() {
     return [...this.store.history].reverse();
   }
 
   private makeSeason(start: number): Season {
     if (config.demoSeasonSeconds !== null) {
+      this.manualRestart = false;
       return { id: `demo-${randomUUID().slice(0, 8)}`, startsAt: start, endsAt: start + config.demoSeasonSeconds * 1000 };
     }
     const date = new Date(start);
     const quarter = Math.floor(date.getUTCMonth() / 3);
-    const startsAt = Date.UTC(date.getUTCFullYear(), quarter * 3, 1);
+    const quarterStart = Date.UTC(date.getUTCFullYear(), quarter * 3, 1);
     const endsAt = Date.UTC(date.getUTCFullYear(), quarter * 3 + 3, 1);
-    return { id: `${date.getUTCFullYear()}-Q${quarter + 1}`, startsAt, endsAt };
+    const id = `${date.getUTCFullYear()}-Q${quarter + 1}`;
+    if (this.manualRestart) {
+      // A season ended by hand mid-quarter: the rest of the quarter becomes its own season.
+      this.manualRestart = false;
+      let n = 2;
+      while (this.store.history.some((season) => season.season_id === `${id}-${n}`) || this.active?.id === `${id}-${n}`) n++;
+      return { id: `${id}-${n}`, startsAt: start, endsAt };
+    }
+    return { id, startsAt: quarterStart, endsAt };
   }
 }
 

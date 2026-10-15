@@ -58,3 +58,19 @@ CREATE TABLE IF NOT EXISTS events (
   multiplier numeric(4, 2) NOT NULL DEFAULT 1 CHECK (multiplier >= 1),
   CHECK (ends_at > starts_at)
 );
+
+CREATE TABLE IF NOT EXISTS admins (
+  id uuid PRIMARY KEY,
+  username text NOT NULL UNIQUE CHECK (char_length(username) BETWEEN 3 AND 40),
+  password_hash text NOT NULL,
+  must_change_password boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  password_changed_at timestamptz
+);
+
+-- Quick time events: weekly bonus POIs (poi_id) and daily category challenges (category).
+ALTER TABLE events ALTER COLUMN poi_id DROP NOT NULL;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS category text;
+
+-- Which quick time event (if any) applied to a check-in; used for badges.
+ALTER TABLE checkins ADD COLUMN IF NOT EXISTS event_type text;
