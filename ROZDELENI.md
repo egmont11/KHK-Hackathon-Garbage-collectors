@@ -7,4 +7,6 @@
 | **Matěj** | Backend + hra | Mock API nad `poi.geojson`, DB, týmy a hráči, check-in s kontrolou GPS, body a sezóny, `/api/stats`. Dashboard pro kraj (heatmapa, grafy), případně quick time eventy. |
 | **Všichni** | Pitch + demo | Tadeáš slidy, Karel a Matěj demo scénář a opravy. |
 
+Frontend kóduje Tadeáš, kolik stihne. Co nenakóduje, přebírá Karel podle jeho návrhů.
+
 **Rozhraní:** formát `poi.geojson` a API podle [AGENTS.md](AGENTS.md). Každý pracuje ve své složce: Karel `scripts/` + `data/`, Matěj `backend/`, Tadeáš `frontend/`.
