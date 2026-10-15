@@ -19,3 +19,5 @@ npm start
 ```
 
 Otevři http://localhost:5173. Demo režim s polohou klikem do mapy: http://localhost:5173/?demo=1
+
+Dashboard kraje: http://localhost:5173/dashboard (admin / admin). V demo režimu trvá zabírání 10 s.

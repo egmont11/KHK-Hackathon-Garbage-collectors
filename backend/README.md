@@ -7,7 +7,7 @@ REST API + region dashboard, Fastify + TypeScript. What's done and what isn't: [
 ```powershell
 cd backend
 npm install
-npm run demo     # in-memory, 800 synthetic visits so the dashboard and leaderboard look alive
+npm run demo     # in-memory, 800 synthetic visits, 10 s check-in, dashboard login admin / admin
 npm run dev      # in-memory, empty, auto-reload
 npm test         # end-to-end smoke test (onboarding → check-in → leaderboard → stats)
 ```
