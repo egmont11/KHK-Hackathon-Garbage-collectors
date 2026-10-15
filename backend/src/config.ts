@@ -46,9 +46,9 @@ export const config = {
 } as const;
 
 export const teams = {
-  hory: { name: "Hory", color: "#D7263D" },
-  reky: { name: "Řeky", color: "#1E63B5" },
-  lesy: { name: "Lesy", color: "#2E8B3E" },
+  hory: { name: "Hory", color: "#C2412F" },
+  reky: { name: "Řeky", color: "#2F5D9E" },
+  lesy: { name: "Lesy", color: "#4A7A3A" },
 } as const;
 
 export type TeamId = keyof typeof teams;

@@ -13,7 +13,7 @@ export function formatDistance(m) {
 }
 
 export const TEAMS = {
-  hory: { label: 'Hory', color: '#D7263D' },
-  reky: { label: 'Řeky', color: '#1E63B5' },
-  lesy: { label: 'Lesy', color: '#2E8B3E' },
+  hory: { label: 'Hory', color: '#C2412F' },
+  reky: { label: 'Řeky', color: '#2F5D9E' },
+  lesy: { label: 'Lesy', color: '#4A7A3A' },
 }

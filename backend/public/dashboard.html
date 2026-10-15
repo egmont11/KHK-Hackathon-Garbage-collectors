@@ -12,8 +12,8 @@
 :root {
   --paper: #F7F3EA; --card: #FFFDF8; --ink: #2B2A26; --ink-2: #5E5A50; --muted: #8C877B;
   --line: #E6DFCF; --grid: #EEE8DB; --sign: #F2C230; --sign-ink: #3A2E05;
-  --hory: #D7263D; --reky: #1E63B5; --lesy: #2E8B3E;
-  --seq: #1E63B5; --seq-soft: #DCE7F5; --bonus: #B5651D;
+  --hory: #C2412F; --reky: #2F5D9E; --lesy: #4A7A3A;
+  --seq: #2F5D9E; --seq-soft: #DCE7F5; --bonus: #B5651D;
   --radius: 16px; --shadow: 0 1px 0 rgba(60,45,10,.06), 0 6px 18px -10px rgba(60,45,10,.25);
 }
 * { box-sizing: border-box; }
@@ -35,7 +35,7 @@ header.sign::after { content: ""; position: absolute; right: -14px; top: 50%; tr
 .season { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 14px; }
 .pill { background: rgba(255,255,255,.55); border-radius: 999px; padding: 6px 12px; white-space: nowrap; }
 .live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; }
-.live i { width: 8px; height: 8px; border-radius: 50%; background: #2E8B3E; box-shadow: 0 0 0 0 rgba(46,139,62,.5); animation: pulse 2s infinite; }
+.live i { width: 8px; height: 8px; border-radius: 50%; background: #4A7A3A; box-shadow: 0 0 0 0 rgba(46,139,62,.5); animation: pulse 2s infinite; }
 .live.off i { background: #B23; animation: none; }
 @keyframes pulse { 70% { box-shadow: 0 0 0 8px rgba(46,139,62,0); } 100% { box-shadow: 0 0 0 0 rgba(46,139,62,0); } }
 
@@ -62,7 +62,7 @@ h2 { font-size: 15px; font-weight: 900; margin: 0 0 2px; }
 .leaflet-tile-pane { filter: sepia(.35) saturate(.75) brightness(1.04) contrast(.92); }
 .map-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
 .legend-heat { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); font-weight: 700; }
-.legend-heat b { display: block; width: 110px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #DCE7F5, #7FA6D9, #1E63B5, #F2C230, #D7263D); }
+.legend-heat b { display: block; width: 110px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #DCE7F5, #7FA6D9, #2F5D9E, #F2C230, #C2412F); }
 
 /* Teams */
 .team { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; }
@@ -82,14 +82,14 @@ h2 { font-size: 15px; font-weight: 900; margin: 0 0 2px; }
 .event + .event { border-top: 1px dashed var(--line); }
 .tl-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; font-weight: 700; color: var(--ink-2); margin: 4px 0 8px; }
 .tl-legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -2px; }
-.tl-legend .sw.bar { background: #1E63B5; }
+.tl-legend .sw.bar { background: #2F5D9E; }
 .tl-legend .sw.bonus { background: #FBE7A6; border: 1px solid #E8C65A; }
 .tl-summary { margin: 8px 0 0; font-size: 13px; font-weight: 700; color: var(--ink-2); }
 select.tool { appearance: auto; max-width: 260px; }
 .ev-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 800; color: var(--ink-2); margin: 10px 0 2px; }
 .ev-head:first-child { margin-top: 0; }
 .ev-head span:last-child { color: var(--muted); }
-.event.daily .x { background: #E6F0E8; border-color: #2E8B3E; color: #1F6B2E; font-size: 13px; }
+.event.daily .x { background: #E6F0E8; border-color: #4A7A3A; color: #1F6B2E; font-size: 13px; }
 .event .x { flex: none; width: 42px; height: 42px; border-radius: 12px; background: #FFF3D1; border: 2px solid var(--sign); display: grid; place-items: center; font-weight: 900; color: var(--bonus); }
 .event .t { font-weight: 800; font-size: 14px; line-height: 1.2; }
 .event .s { font-size: 12px; color: var(--muted); font-weight: 700; }
@@ -161,7 +161,7 @@ footer a { color: inherit; }
         <rect x="18" y="6" width="4" height="32" rx="2" fill="#6B4E16"/>
         <path d="M6 9h24l5 5-5 5H6z" fill="#fff" stroke="#3A2E05" stroke-width="2" stroke-linejoin="round"/>
         <path d="M34 22H10l-5 5 5 5h24z" fill="#fff" stroke="#3A2E05" stroke-width="2" stroke-linejoin="round"/>
-        <rect x="11" y="12" width="14" height="4" rx="1" fill="#2E8B3E"/><rect x="15" y="25" width="14" height="4" rx="1" fill="#D7263D"/>
+        <rect x="11" y="12" width="14" height="4" rx="1" fill="#4A7A3A"/><rect x="15" y="25" width="14" height="4" rx="1" fill="#C2412F"/>
       </svg>
       <div><h1>Krajánek · dashboard kraje</h1><p>Kam lidé v Královéhradeckém kraji chodí – anonymně, po místech a kategoriích</p></div>
     </div>
@@ -202,7 +202,7 @@ footer a { color: inherit; }
         <div><h2 id="mapTitle">Heatmapa návštěv</h2><p class="hint" id="mapHint">Hustota check-inů; kroužky = nejnavštěvovanější místa, ★ = týdenní bonusové místo</p></div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <div class="legend-heat" id="legendHeat">méně <b></b> více</div>
-          <div class="legend-heat" id="legendTeams" hidden><span class="dot" style="--c:#D7263D"></span>Hory <span class="dot" style="--c:#1E63B5"></span>Řeky <span class="dot" style="--c:#2E8B3E"></span>Lesy</div>
+          <div class="legend-heat" id="legendTeams" hidden><span class="dot" style="--c:#C2412F"></span>Hory <span class="dot" style="--c:#2F5D9E"></span>Řeky <span class="dot" style="--c:#4A7A3A"></span>Lesy</div>
           <div class="seg" id="mapMode" role="group" aria-label="Vrstva mapy">
             <button data-mode="heat" aria-pressed="true">Návštěvy</button>
             <button data-mode="teams" aria-pressed="false">Území týmů</button>
@@ -297,7 +297,7 @@ footer a { color: inherit; }
 <script src="/vendor/leaflet-heat.js"></script>
 <script>
 const API = new URLSearchParams(location.search).get("api") || "";
-const TEAM = { hory: "#D7263D", reky: "#1E63B5", lesy: "#2E8B3E" };
+const TEAM = { hory: "#C2412F", reky: "#2F5D9E", lesy: "#4A7A3A" };
 const fmt = new Intl.NumberFormat("cs-CZ");
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -315,7 +315,7 @@ const hasMap = typeof window.L !== "undefined";
 const map = hasMap && L.map("map", { zoomControl: true, scrollWheelZoom: false, attributionControl: false }).setView([50.38, 15.85], 9);
 if (hasMap) L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, subdomains: "abc" }).addTo(map);
 const heat = hasMap && L.heatLayer([], { radius: 22, blur: 18, maxZoom: 12, minOpacity: .25,
-  gradient: { .2: "#DCE7F5", .4: "#7FA6D9", .6: "#1E63B5", .8: "#F2C230", 1: "#D7263D" } }).addTo(map);
+  gradient: { .2: "#DCE7F5", .4: "#7FA6D9", .6: "#2F5D9E", .8: "#F2C230", 1: "#C2412F" } }).addTo(map);
 const markers = hasMap && L.layerGroup().addTo(map);
 if (hasMap) map.on("click", () => map.scrollWheelZoom.enable());
 else document.getElementById("map").innerHTML = '<div class="empty" style="padding:20px">Mapu se nepodařilo načíst.</div>';
@@ -581,8 +581,8 @@ function renderLine(svg, pts) {
   const day = (k) => { const [, m, d] = k.split("-"); return `${+d}. ${+m}.`; };
   let labels = pts.map((p, i) => i % step === 0 ? `<text x="${x(i)}" y="${f.h - 6}" text-anchor="middle">${day(p.label)}</text>` : "").join("");
   const hits = pts.map((p, i) => `<rect x="${x(i) - iw / pts.length / 2}" y="${f.t}" width="${Math.max(4, iw / pts.length)}" height="${ih}" fill="transparent" data-i="${i}" data-tip="${day(p.label)}: ${fmt.format(p.value)} check-inů"/>`).join("");
-  svg.innerHTML = `${yGrid(f, max)}<path d="${area}" fill="#1E63B5" opacity=".12"/><path d="${line}" fill="none" stroke="#1E63B5" stroke-width="2" stroke-linejoin="round"/>
-    <line id="xh" x1="0" x2="0" y1="${f.t}" y2="${f.t + ih}" stroke="#8C877B" stroke-dasharray="3 3" opacity="0"/><circle id="xd" r="4.5" fill="#1E63B5" stroke="#fff" stroke-width="2" opacity="0"/>${labels}${hits}`;
+  svg.innerHTML = `${yGrid(f, max)}<path d="${area}" fill="#2F5D9E" opacity=".12"/><path d="${line}" fill="none" stroke="#2F5D9E" stroke-width="2" stroke-linejoin="round"/>
+    <line id="xh" x1="0" x2="0" y1="${f.t}" y2="${f.t + ih}" stroke="#8C877B" stroke-dasharray="3 3" opacity="0"/><circle id="xd" r="4.5" fill="#2F5D9E" stroke="#fff" stroke-width="2" opacity="0"/>${labels}${hits}`;
   svg.onmousemove = (e) => { const i = e.target.dataset?.i; if (i === undefined) return; const xh = svg.querySelector("#xh"), xd = svg.querySelector("#xd");
     xh.setAttribute("x1", x(+i)); xh.setAttribute("x2", x(+i)); xh.setAttribute("opacity", 1); xd.setAttribute("cx", x(+i)); xd.setAttribute("cy", y(pts[+i].value)); xd.setAttribute("opacity", 1); };
   svg.onmouseleave = () => { svg.querySelector("#xh")?.setAttribute("opacity", 0); svg.querySelector("#xd")?.setAttribute("opacity", 0); };
@@ -621,7 +621,7 @@ function renderTimeline(svg, days) {
   days.forEach((d, i) => {
     const x0 = f.l + i * bw, w = bw - gap, h = ih * d.count / max, y0 = f.t + ih - h, r = Math.min(4, w / 2, h);
     if (d.bonus) bands += `<rect x="${x0 - gap / 2}" y="${f.t}" width="${bw}" height="${ih}" fill="#FBE7A6" opacity=".7"/>`;
-    if (h > 0) bars += `<path d="M${x0},${f.t + ih}V${y0 + r}Q${x0},${y0} ${x0 + r},${y0}H${x0 + w - r}Q${x0 + w},${y0} ${x0 + w},${y0 + r}V${f.t + ih}Z" fill="#1E63B5"/>`;
+    if (h > 0) bars += `<path d="M${x0},${f.t + ih}V${y0 + r}Q${x0},${y0} ${x0 + r},${y0}H${x0 + w - r}Q${x0 + w},${y0} ${x0 + w},${y0 + r}V${f.t + ih}Z" fill="#2F5D9E"/>`;
     bars += `<rect x="${x0}" y="${f.t}" width="${bw}" height="${ih}" fill="transparent" data-tip="${day(d.key)}: ${fmt.format(d.count)} check-inů${d.bonus ? " · denní bonus" : ""}"/>`;
     if (i % step === 0) bars += `<text x="${x0 + w / 2}" y="${f.h - 6}" text-anchor="middle">${day(d.key)}</text>`;
   });
@@ -639,7 +639,7 @@ function renderColumns(svg, pts) {
   const bw = iw / pts.length, gap = 2;
   let bars = "";
   pts.forEach((p, i) => { const h = ih * p.value / max, x0 = f.l + i * bw + gap / 2, w = bw - gap, y0 = f.t + ih - h, r = Math.min(4, w / 2, h);
-    bars += h > 0 ? `<path d="M${x0},${f.t + ih}V${y0 + r}Q${x0},${y0} ${x0 + r},${y0}H${x0 + w - r}Q${x0 + w},${y0} ${x0 + w},${y0 + r}V${f.t + ih}Z" fill="#1E63B5"/>` : "";
+    bars += h > 0 ? `<path d="M${x0},${f.t + ih}V${y0 + r}Q${x0},${y0} ${x0 + r},${y0}H${x0 + w - r}Q${x0 + w},${y0} ${x0 + w},${y0 + r}V${f.t + ih}Z" fill="#2F5D9E"/>` : "";
     bars += `<rect x="${x0}" y="${f.t}" width="${w}" height="${ih}" fill="transparent" data-tip="${p.label}:00–${p.label}:59 · ${fmt.format(p.value)} check-inů"/>`;
     if (p.label % 3 === 0) bars += `<text x="${x0 + w / 2}" y="${f.h - 6}" text-anchor="middle">${p.label}h</text>`; });
   svg.innerHTML = yGrid(f, max) + bars;

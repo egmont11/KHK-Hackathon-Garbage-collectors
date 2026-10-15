@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import MapView from './MapView.jsx'
 import { api, loadPois } from './api.js'
 import { TEAMS, distanceM, formatDistance } from './geo.js'
-import { DEMO, Icon, TeamBadge, go } from './ui.jsx'
+import { DEMO, Icon, KctMark, TeamIcon, go } from './ui.jsx'
 import { GROUPS, groupIcon } from './groups.js'
 import { EventsPage, LeaderboardPage, PoiInfoPage, ProfilePage, TransportPage } from './pages.jsx'
 
@@ -114,9 +114,18 @@ function Game({ player, onLogout }) {
   if (route.page === 'udalosti') page = <EventsPage pois={pois} position={position} onShow={showOnMap} />
   if (route.page === 'profil') page = <ProfilePage player={player} pois={pois} onLogout={onLogout} />
 
+  const teamColor = TEAMS[player.team]?.color
+  const tab = (id, icon, label, extra = '') => (
+    <button className={`${extra}${route.page === id ? ' active' : ''}`} onClick={() => go(id)}>
+      <span className="tab-icon"><Icon name={icon} fill={route.page === id} /></span>
+      <span>{label}</span>
+    </button>
+  )
+
   return (
-    <div className="app">
+    <div className="app" style={{ '--team': teamColor }}>
       <MapPage
+        player={player}
         pois={pois}
         owners={owners}
         position={position}
@@ -126,9 +135,9 @@ function Game({ player, onLogout }) {
         checkin={checkin}
       />
       <nav className="navbar">
-        <button onClick={() => go('zebricek')}><Icon name="leaderboard" /><br />Žebříček</button>
-        <button onClick={() => go('udalosti')}><Icon name="timer" /><br />Události</button>
-        <button onClick={() => go('profil')}><Icon name="person" /><br />Profil</button>
+        {tab('zebricek', 'trophy', 'Žebříček')}
+        {tab('udalosti', 'flag', 'Questy', 'quests')}
+        {tab('profil', 'person', 'Profil')}
       </nav>
       {page && <div className="page">{page}</div>}
     </div>
@@ -137,7 +146,21 @@ function Game({ player, onLogout }) {
 
 const EMPTY_FILTERS = { q: '', group: '', category: '', minPoints: 0, maxKm: '', nearStop: false }
 
-function MapPage({ pois, owners, position, setPosition, selected, setSelectedId, checkin }) {
+function CheckinRing({ elapsed, required, valid }) {
+  const r = 26
+  const c = 2 * Math.PI * r
+  return (
+    <div className={`ring${valid ? '' : ' paused'}`}>
+      <svg viewBox="0 0 64 64">
+        <circle className="ring-track" cx="32" cy="32" r={r} />
+        <circle className="ring-fill" cx="32" cy="32" r={r} strokeDasharray={c} strokeDashoffset={c * (1 - elapsed / required)} />
+      </svg>
+      <b>{Math.max(0, required - elapsed)}</b>
+    </div>
+  )
+}
+
+function MapPage({ player, pois, owners, position, setPosition, selected, setSelectedId, checkin }) {
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [filterOpen, setFilterOpen] = useState(false)
   const [toast, setToast] = useState(null)
@@ -164,6 +187,7 @@ function MapPage({ pois, owners, position, setPosition, selected, setSelectedId,
       return true
     })
   }, [pois, filters, position])
+  const filterActive = JSON.stringify(filters) !== JSON.stringify(EMPTY_FILTERS)
 
   const sel = selected?.properties
   const dist = selected && position
@@ -172,9 +196,10 @@ function MapPage({ pois, owners, position, setPosition, selected, setSelectedId,
   const inRange = dist != null && dist <= CHECKIN_RADIUS_M
   const cs = checkin.state
   const running = cs.phase === 'running'
+  const stop = sel?.nearest_stop
 
   function claim() {
-    if (!inRange) return flash(position ? `Jsi mimo dosah (${formatDistance(dist)}, potřeba do ${CHECKIN_RADIUS_M} m).` : 'Neznám tvoji polohu.')
+    if (!inRange) return flash(position ? `Mimo dosah · ${formatDistance(dist)}` : 'Bez polohy')
     checkin.start(selected)
   }
 
@@ -189,41 +214,64 @@ function MapPage({ pois, owners, position, setPosition, selected, setSelectedId,
         demo={DEMO}
         onDemoClick={(lat, lon) => setPosition({ lat, lon, accuracy_m: 5 })}
       />
-      {DEMO && <div className="overlay demo-hint">demo: klik do mapy = tvoje poloha</div>}
 
-      <button className="overlay round filter-btn" onClick={() => setFilterOpen(!filterOpen)} aria-label="Filtr">
-        <Icon name="filter_alt" />
-      </button>
+      <header className="topbar">
+        <div className="brand">
+          <KctMark team={player.team} className="brand-kct" />
+          Krajánek
+          {DEMO && <span className="demo-pill">demo</span>}
+        </div>
+        <button className={`round-btn${filterOpen ? ' on' : ''}`} onClick={() => setFilterOpen(!filterOpen)} aria-label="Filtr">
+          <Icon name={filterOpen ? 'close' : 'tune'} />
+          {filterActive && !filterOpen && <i className="dot" />}
+        </button>
+      </header>
+
       {filterOpen && (
         <Filters pois={pois} filters={filters} setFilters={setFilters} count={filtered.length} position={position} />
       )}
 
-      {(running || cs.phase === 'done' || (cs.phase === 'error' && cs.poiId === sel?.id)) && (
-        <div className="overlay checkin">
-          {running && (
-            <>
-              <b>{cs.name}</b><br />
-              <progress max={cs.required} value={cs.elapsed} /> {cs.elapsed} / {cs.required} s
-              {!cs.valid && <div className="err">Jsi mimo 100 m nebo máš slabé GPS – odpočet stojí.</div>}
-              <button onClick={checkin.cancel}>zrušit</button>
-            </>
-          )}
-          {cs.phase === 'done' && <><Icon name="celebration" /> {cs.name}: +{cs.awarded_points} b., tým má {cs.team_score} b. <button onClick={checkin.cancel}>ok</button></>}
-          {cs.phase === 'error' && <span className="err">{cs.msg}</span>}
+      {running && (
+        <div className="checkin">
+          <CheckinRing elapsed={cs.elapsed} required={cs.required} valid={cs.valid} />
+          <div className="checkin-body">
+            <b>{cs.name}</b>
+            {!cs.valid && <span className="warn"><Icon name="location_off" /> Mimo dosah</span>}
+          </div>
+          <button className="round-btn ghost" onClick={checkin.cancel} aria-label="Zrušit"><Icon name="close" /></button>
         </div>
       )}
-      {toast && <div className="overlay toast">{toast}</div>}
-
-      {sel && (
-        <div className="overlay poi-actions">
-          <div className="poi-label">
-            {sel.name} · {sel.points} b.{dist != null && ` · ${formatDistance(dist)}`}
-            <button className="link" onClick={() => setSelectedId(null)} aria-label="Zrušit výběr"><Icon name="close" /></button>
+      {cs.phase === 'done' && (
+        <div className="stamp-wrap" onClick={checkin.cancel}>
+          <div className="stamp">
+            <TeamIcon team={player.team} size={34} />
+            <b>+{cs.awarded_points}</b>
+            <span>{cs.name}</span>
           </div>
-          <div className="buttons">
-            <button className="round" onClick={() => go('doprava', sel.id)} aria-label="Doprava"><Icon name="directions_bus" /></button>
-            <button className="round" onClick={() => go('info', sel.id)} aria-label="Informace"><Icon name="question_mark" /></button>
-            <button className={`claim ${inRange ? '' : 'disabled'}`} onClick={claim} disabled={running}>Zabrat</button>
+        </div>
+      )}
+      {cs.phase === 'error' && cs.poiId === sel?.id && (
+        <div className="toast err"><Icon name="error" /> {cs.msg}</div>
+      )}
+      {toast && <div className="toast"><Icon name="location_off" /> {toast}</div>}
+
+      {sel && !filterOpen && (
+        <div className="poi-panel">
+          <div className="signpost">
+            <button className="signpost-close" onClick={() => setSelectedId(null)} aria-label="Zavřít"><Icon name="close" /></button>
+            <div className="signpost-title">{sel.name}</div>
+            <div className="signpost-meta">
+              <span className="pts">{sel.points} b.</span>
+              {dist != null && <span><Icon name="near_me" />{formatDistance(dist)}</span>}
+              {stop && <span><Icon name={stop.type === 'train' ? 'train' : 'directions_bus'} />{formatDistance(stop.distance_m)}</span>}
+            </div>
+          </div>
+          <div className="poi-buttons">
+            <button className="round-btn big" onClick={() => go('doprava', sel.id)} aria-label="Doprava"><Icon name="directions_bus" /></button>
+            <button className="round-btn big" onClick={() => go('info', sel.id)} aria-label="Informace"><Icon name="info" /></button>
+            <button className={`claim${inRange ? '' : ' far'}`} onClick={claim} disabled={running}>
+              Zabrat <Icon name="flag" fill />
+            </button>
           </div>
         </div>
       )}
@@ -243,36 +291,55 @@ function Filters({ pois, filters, setFilters, count, position }) {
   }, [pois, filters.group])
   const setF = (k) => (e) => setFilters({ ...filters, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
   return (
-    <div className="overlay filter-panel">
-      <b>Filtr ({count} / {pois.length})</b>
-      <input placeholder="hledat název / obec" value={filters.q} onChange={setF('q')} />
+    <div className="sheet filter-sheet">
+      <label className="search">
+        <Icon name="search" />
+        <input placeholder="Hledat" value={filters.q} onChange={setF('q')} />
+      </label>
       <div className="group-chips">
         {groups.map((g) => (
-          <button key={g} title={GROUPS[g]?.label ?? g} className={filters.group === g ? 'active' : ''}
+          <button key={g} className={filters.group === g ? 'active' : ''}
             onClick={() => setFilters({ ...filters, group: filters.group === g ? '' : g, category: '' })}>
             <Icon name={groupIcon(g)} />
+            <span>{GROUPS[g]?.label.split(' ')[0] ?? g}</span>
           </button>
         ))}
       </div>
-      {filters.group && <small>{GROUPS[filters.group]?.label}</small>}
       <select value={filters.category} onChange={setF('category')}>
-        <option value="">všechny kategorie</option>
+        <option value="">Všechny kategorie</option>
         {categories.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
       </select>
-      <label>min. body: {filters.minPoints} <input type="range" min="0" max="100" step="5" value={filters.minPoints} onChange={(e) => setFilters({ ...filters, minPoints: +e.target.value })} /></label>
-      <label>do km ode mě: <input type="number" min="0" style={{ width: 60 }} value={filters.maxKm} onChange={setF('maxKm')} disabled={!position} /></label>
-      <label><input type="checkbox" checked={filters.nearStop} onChange={setF('nearStop')} /> zastávka do 500 m</label>
-      <button onClick={() => setFilters(EMPTY_FILTERS)}>zrušit filtr</button>
+      <label className="row">
+        <Icon name="star" />
+        <input type="range" min="0" max="100" step="5" value={filters.minPoints} onChange={(e) => setFilters({ ...filters, minPoints: +e.target.value })} />
+        <b>{filters.minPoints}+</b>
+      </label>
+      <label className={`row${position ? '' : ' off'}`}>
+        <Icon name="near_me" />
+        <input type="number" min="0" inputMode="numeric" placeholder="–" value={filters.maxKm} onChange={setF('maxKm')} disabled={!position} />
+        <b>km</b>
+      </label>
+      <label className="row toggle">
+        <Icon name="directions_bus" />
+        <span>≤ 500 m</span>
+        <input type="checkbox" checked={filters.nearStop} onChange={setF('nearStop')} />
+        <i />
+      </label>
+      <div className="filter-foot">
+        <button className="text-btn" onClick={() => setFilters(EMPTY_FILTERS)}><Icon name="restart_alt" /> Reset</button>
+        <span className="count">{count}<small> / {pois.length}</small></span>
+      </div>
     </div>
   )
 }
 
 function Onboarding({ onDone }) {
   const [name, setName] = useState('')
-  const [team, setTeam] = useState('hory')
+  const [team, setTeam] = useState(null)
   const [error, setError] = useState(null)
   async function submit(e) {
     e.preventDefault()
+    if (!team) return
     try {
       const { player_id, token } = await api.createPlayer({ name, team })
       const player = { player_id, name, team }
@@ -282,18 +349,30 @@ function Onboarding({ onDone }) {
     } catch (err) { setError(err.message) }
   }
   return (
-    <form className="onboarding" onSubmit={submit}>
-      <h1>Krajánek</h1>
-      <p>Objevuj, dobývej, poznávej kraj.</p>
-      <fieldset>
-        <legend>Jak se jmenuješ a za koho hraješ?</legend>
-        <input required placeholder="jméno" value={name} onChange={(e) => setName(e.target.value)} />
-        {Object.entries(TEAMS).map(([id]) => (
-          <label key={id}><input type="radio" name="team" checked={team === id} onChange={() => setTeam(id)} /> <TeamBadge team={id} /></label>
+    <form className="onboarding" onSubmit={submit} style={{ '--team': team ? TEAMS[team].color : undefined }}>
+      <div className="onboarding-brand">
+        <KctMark team={team || 'lesy'} />
+        <h1>Krajánek</h1>
+      </div>
+      <label className="field">
+        <span>Jméno</span>
+        <input className="name-input" required autoComplete="nickname" value={name} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <div className="field">
+        <span>Tým</span>
+        <div className="team-pick">
+        {Object.entries(TEAMS).map(([id, t]) => (
+          <button type="button" key={id} className={`team-card${team === id ? ' active' : ''}`} style={{ '--c': t.color }}
+            onClick={() => setTeam(id)} aria-pressed={team === id}>
+            <TeamIcon team={id} size={44} />
+            <KctMark team={id} className="big" />
+            <span>{t.label}</span>
+          </button>
         ))}
-        <button>Hrát</button>
-        {error && <p className="err">{error}</p>}
-      </fieldset>
+        </div>
+      </div>
+      <button className="play" disabled={!team || !name.trim()}>Hrát <Icon name="arrow_forward" /></button>
+      {error && <p className="err">{error}</p>}
     </form>
   )
 }

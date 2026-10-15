@@ -58,7 +58,7 @@ GET  /api/seasons/history                                           -> [{season_
 GET  /api/events/active                                             -> aktivní quick time eventy
 GET  /api/stats/poi?from=&to=                                       -> agregace pro dashboard kraje
 ```
-Týmy (ID neměnit): `hory` = Hory, červená `#D7263D`; `reky` = Řeky, modrá `#1E63B5`; `lesy` = Lesy, zelená `#2E8B3E`. Barvy odpovídají turistickému značení KČT (bílá–barva–bílá).
+Týmy (ID neměnit): `hory` = Hory, červená `#C2412F`; `reky` = Řeky, modrá `#2F5D9E`; `lesy` = Lesy, zelená `#4A7A3A`. Barvy odpovídají turistickému značení KČT (bílá–barva–bílá).
 
 ## 2. Role A – Data
 
