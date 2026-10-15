@@ -1,0 +1,38 @@
+export type Coordinates = { lat: number; lon: number };
+export type Stop = { name: string; type: "bus" | "train"; distance_m: number; lat: number; lon: number };
+export type Poi = {
+  id: string;
+  name: string;
+  category: string;
+  category_label?: string;
+  group?: string;
+  description?: string | null;
+  municipality?: string | null;
+  municipality_code?: string | null;
+  orp_code?: string | null;
+  web?: string | null;
+  tp_id?: string | null;
+  is_nkp?: boolean;
+  nearest_stop?: Stop | null;
+  nearest_bus_stop?: Stop | null;
+  nearest_train_stop?: Stop | null;
+  points: number;
+  source?: string;
+  [key: string]: unknown;
+};
+export type Feature = { type: "Feature"; geometry: { type: "Point"; coordinates: [number, number] }; properties: Poi };
+export type FeatureCollection = { type: "FeatureCollection"; features: Feature[] };
+export type Ping = Coordinates & { accuracy_m: number; ts: number };
+export type Checkin = {
+  id: string;
+  playerId: string;
+  poiId: string;
+  seasonId: string;
+  startedAt: number;
+  finishedAt: number | null;
+  valid: boolean;
+  awardedPoints: number;
+  pings: Ping[];
+  streakStartedAt: number | null;
+  lastTeam: string | null;
+};
