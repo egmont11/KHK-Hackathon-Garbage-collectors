@@ -77,15 +77,15 @@ function useCheckin(position, onCaptured) {
 }
 
 function loadPlayer() {
-  try { return JSON.parse(localStorage.getItem('turistak-player')) } catch { return null }
+  try { return JSON.parse(localStorage.getItem('krajanek-player')) } catch { return null }
 }
 
 export default function App() {
   const [player, setPlayer] = useState(loadPlayer)
   if (!player) return <Onboarding onDone={setPlayer} />
   return <Game player={player} onLogout={() => {
-    localStorage.removeItem('turistak-player')
-    localStorage.removeItem('turistak-token')
+    localStorage.removeItem('krajanek-player')
+    localStorage.removeItem('krajanek-token')
     setPlayer(null)
     go('')
   }} />
@@ -276,14 +276,14 @@ function Onboarding({ onDone }) {
     try {
       const { player_id, token } = await api.createPlayer({ name, team })
       const player = { player_id, name, team }
-      localStorage.setItem('turistak-token', token)
-      localStorage.setItem('turistak-player', JSON.stringify(player))
+      localStorage.setItem('krajanek-token', token)
+      localStorage.setItem('krajanek-player', JSON.stringify(player))
       onDone(player)
     } catch (err) { setError(err.message) }
   }
   return (
     <form className="onboarding" onSubmit={submit}>
-      <h1>Turisťák</h1>
+      <h1>Krajánek</h1>
       <p>Objevuj, dobývej, poznávej kraj.</p>
       <fieldset>
         <legend>Jak se jmenuješ a za koho hraješ?</legend>

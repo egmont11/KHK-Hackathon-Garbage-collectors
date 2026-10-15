@@ -1,4 +1,4 @@
-# Turisťák backend
+# Krajánek backend
 
 REST API + region dashboard, Fastify + TypeScript. What's done and what isn't: [STATUS.md](STATUS.md). Loads `data/poi.geojson` at startup (missing file → empty catalog, `/health` reports `poi_count: 0`).
 

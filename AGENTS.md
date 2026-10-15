@@ -1,4 +1,4 @@
-# AGENTS – podrobné zadání pro AI agenty (Turisťák)
+# AGENTS – podrobné zadání pro AI agenty (Krajánek)
 
 Krátká verze pro lidi je v [PLAN.md](PLAN.md). Přehled všech zkoumaných dat je v [docs/data-khk-prehled.md](docs/data-khk-prehled.md).
 Tento dokument je zdroj pravdy pro implementaci. Při práci na úkolu přečti celou sekci své role a sekci **Kontrakty**.
@@ -10,7 +10,7 @@ Tento dokument je zdroj pravdy pro implementaci. Při práci na úkolu přečti 
   - 3 týmy. Hráč dojde k POI a 60 s zůstane do 100 m od něj. Tým dostane `points` daného POI.
   - Hraje se v sezónách (1 sezóna = čtvrtletí). Hráč obsadí každé POI max. 1× za sezónu. Body neubývají, nová sezóna = kompletní reset.
   - Kraj dostává anonymní statistiku návštěv.
-- **Název a téma:** Turisťák, tagline „Objevuj, dobývej, poznávej kraj.“ Objevování kraje (místa, historie, příroda, památky), motiv turistiky, maskot Krakonoš. Týmy Hory / Řeky / Lesy (viz 1.2).
+- **Název a téma:** Krajánek, tagline „Objevuj, dobývej, poznávej kraj.“ Objevování kraje (místa, historie, příroda, památky), motiv turistiky, maskot Krakonoš. Týmy Hory / Řeky / Lesy (viz 1.2).
 - **MVP (musí být na demo):**
   1. Mapa s POI, filtry (kategorie, body, vzdálenost) a detailem POI.
   2. Nejbližší autobusová a vlaková zastávka k POI + odkaz na vyhledání spoje (IDOS).
@@ -163,7 +163,7 @@ Konstanty dej do jednoho configu, ať se dají ladit.
 - Test: počet POI > 1 500, všechna mají `points` v 10–100, žádné souřadnice mimo bbox kraje, `id` unikátní.
 
 ## 3. Role B – Frontend / mapa
-**Název aplikace:** Turisťák, tagline „Objevuj, dobývej, poznávej kraj.“
+**Název aplikace:** Krajánek, tagline „Objevuj, dobývej, poznávej kraj.“
 **Vizuální motiv:** turistika. Hravě, ale střídmě, maskot Krakonoš.
 - Podklad mapy: světlý, „papírový“, inspirovaný orientační mapou (bílý les, zelené odstíny hustoty, hnědé vrstevnice, modrá voda). Návrh: světlé rastrové dlaždice v Leafletu s teplým filtrem.
 - Marker POI: malá cedulka na tyčce. Zabrané POI má cedulku v barvě týmu.

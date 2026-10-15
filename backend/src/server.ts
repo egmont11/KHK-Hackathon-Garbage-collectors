@@ -677,7 +677,7 @@ app.get<{ Querystring: StatsQuery }>("/api/admin/export/visits.csv", { preHandle
       point ? String(point.lat) : "", point ? String(point.lon) : "",
     ]);
   }
-  reply.type("text/csv; charset=utf-8").header("content-disposition", `attachment; filename="turistak-navstevy-${new Date().toISOString().slice(0, 10)}.csv"`);
+  reply.type("text/csv; charset=utf-8").header("content-disposition", `attachment; filename="krajanek-navstevy-${new Date().toISOString().slice(0, 10)}.csv"`);
   // BOM + semicolons so Czech Excel opens it correctly.
   return "\uFEFF" + rows.map((row) => row.map(cell).join(";")).join("\r\n") + "\r\n";
 });

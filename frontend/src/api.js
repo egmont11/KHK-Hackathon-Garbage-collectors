@@ -24,7 +24,7 @@ export async function loadStops() {
 
 // --- Real API ---
 async function http(method, path, body) {
-  const token = localStorage.getItem('turistak-token')
+  const token = localStorage.getItem('krajanek-token')
   const res = await fetch(`${API_URL}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -49,7 +49,7 @@ const real = {
 }
 
 // --- Mock ---
-const KEY = 'turistak-mock'
+const KEY = 'krajanek-mock'
 const RULES = { radius_m: 100, max_accuracy_m: 50, max_gap_s: 15, required_s: 60, max_speed_kmh: 30 }
 const EVENTS = { per_week: 3, multiplier: 2 }
 
@@ -76,7 +76,7 @@ function randomId() {
   return [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 const save = (s) => localStorage.setItem(KEY, JSON.stringify(s))
-const me = (s) => s.players[localStorage.getItem('turistak-token')]
+const me = (s) => s.players[localStorage.getItem('krajanek-token')]
 
 const mock = {
   async createPlayer({ name, team }) {
