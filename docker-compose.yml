@@ -1,5 +1,7 @@
 # Krajánek: docker compose up -d --build
-# Nastavení v .env (vzor .env.example). Data (účty, body, sezóny) zůstávají v Postgresu i po restartu.
+# Jediné, co je potřeba nastavit: PORT = port na serveru pro přístup zvenku (výchozí 8080).
+# HTTPS řeší proxy před serverem (Coolify / Traefik / nginx). Ostatní volitelné viz .env.example.
+# Data (účty, body, sezóny) zůstávají v Postgresu i po restartu.
 services:
   db:
     image: postgres:16-alpine
@@ -49,17 +51,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    environment:
-      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - caddy-data:/data
-      - caddy-config:/config
+      - "${PORT:-8080}:80"
 
 volumes:
   db-data:
-  caddy-data:
-  caddy-config:

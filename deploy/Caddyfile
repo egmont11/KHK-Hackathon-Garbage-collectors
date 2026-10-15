@@ -1,6 +1,6 @@
-# SITE_ADDRESS=:80 -> jen HTTP (lokálně). SITE_ADDRESS=krajanek.example.cz -> Caddy samo získá HTTPS
-# certifikát (Let's Encrypt), což je potřeba pro GPS a instalaci PWA na telefonech.
-{$SITE_ADDRESS::80} {
+# Caddy uvnitř kontejneru poslouchá jen HTTP na :80; ven se mapuje přes PORT v docker-compose.yml.
+# HTTPS (nutné pro GPS a PWA na telefonech) zajišťuje proxy před serverem (Coolify apod.).
+:80 {
 	encode zstd gzip
 
 	@backend path /api/* /dashboard /dashboard/* /vendor/* /health
