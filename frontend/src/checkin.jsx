@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { TEAMS, formatDistance } from './geo.js'
+import { formatDistance } from './geo.js'
 import { PING_REASONS, checkinRadius } from './hooks.js'
-import { Icon } from './ui.jsx'
+import { Icon, TeamIcon } from './ui.jsx'
 
 // Odpočet se od backendu dozví jen při pingu (à 5 s), mezi pingy ho dopočítáme lokálně,
 // aby kruh běžel plynule. Když je poloha neplatná, odpočet stojí.
@@ -17,26 +17,26 @@ function useSmoothElapsed(cs) {
   return Math.min((cs.elapsed || 0) + extra, cs.required)
 }
 
-function Ring({ cs, color }) {
+function Ring({ cs }) {
   const elapsed = useSmoothElapsed(cs)
   const required = cs.required || 60
-  const R = 52
-  const C = 2 * Math.PI * R
-  const progress = Math.min(elapsed / required, 1)
+  const r = 26
+  const c = 2 * Math.PI * r
   const paused = !cs.valid || cs.offline
+  const left = Math.max(0, Math.ceil(required - elapsed))
   return (
-    <svg className={`ring ${paused ? 'paused' : ''}`} viewBox="0 0 120 120" role="img" aria-label={`Zbývá ${Math.ceil(required - elapsed)} sekund`}>
-      <circle cx="60" cy="60" r={R} className="ring-track" />
-      <circle cx="60" cy="60" r={R} className="ring-bar" stroke={color}
-        strokeDasharray={C} strokeDashoffset={C * (1 - progress)} transform="rotate(-90 60 60)" />
-      <text x="60" y="58" className="ring-num">{Math.max(0, Math.ceil(required - elapsed))}</text>
-      <text x="60" y="80" className="ring-unit">{paused ? 'stojí' : 'sekund'}</text>
-    </svg>
+    <div className={`ring${paused ? ' paused' : ''}`} role="img" aria-label={`Zbývá ${left} sekund`}>
+      <svg viewBox="0 0 64 64">
+        <circle className="ring-track" cx="32" cy="32" r={r} />
+        <circle className="ring-fill" cx="32" cy="32" r={r} strokeDasharray={c} strokeDashoffset={c * (1 - Math.min(elapsed / required, 1))} />
+      </svg>
+      <b>{left}</b>
+    </div>
   )
 }
 
-function Success({ cs, color, onClose }) {
-  // body „naskakují“ od nuly
+// Razítko po zabrání: body „naskakují“ od nuly, pod ním bonus, skóre týmu a nové odznaky.
+function Stamp({ cs, team, onClose }) {
   const [shown, setShown] = useState(0)
   useEffect(() => {
     const t0 = performance.now()
@@ -50,56 +50,53 @@ function Success({ cs, color, onClose }) {
     return () => cancelAnimationFrame(raf)
   }, [cs.awarded_points])
   return (
-    <div className="success">
-      <div className="burst" aria-hidden="true">
-        {Array.from({ length: 14 }, (_, i) => <i key={i} style={{ '--a': `${(i * 360) / 14}deg`, background: i % 2 ? color : '#F2C230' }} />)}
+    <div className="stamp-wrap" onClick={onClose}>
+      <div className="stamp">
+        <TeamIcon team={team} size={34} />
+        <b>+{shown}</b>
+        <span>{cs.name}</span>
       </div>
-      <div className="success-flag" style={{ '--team': color }}><Icon name="flag" /></div>
-      <div className="success-points">+{shown} b.</div>
-      <div><b>{cs.name}</b> je zabrané!</div>
-      {cs.multiplier > 1 && <div className="chip bonus">Bonus ×{cs.multiplier} (základ {cs.base_points} b.)</div>}
-      <div>Tvůj tým má teď <b>{cs.team_score} b.</b></div>
-      {cs.new_badges?.length > 0 && (
-        <div className="new-badges">
-          {cs.new_badges.map((b, i) => (
-            <div key={b.id} className="chip badge-chip" style={{ animationDelay: `${0.9 + i * 0.25}s` }}>
-              <Icon name="military_tech" /> Nový odznak: <b>{b.name}</b>
-            </div>
-          ))}
-        </div>
-      )}
-      <button className="claim" onClick={onClose}>Super!</button>
+      <div className="stamp-info">
+        {cs.multiplier > 1 && <span className="chip gold"><Icon name="bolt" fill /> ×{cs.multiplier} · základ {cs.base_points} b.</span>}
+        <span className="chip"><Icon name="groups" /> Tým má {cs.team_score} b.</span>
+        {cs.new_badges?.map((b, i) => (
+          <span key={b.id} className="chip gold badge-chip" style={{ animationDelay: `${0.6 + i * 0.25}s` }}>
+            <Icon name="military_tech" fill /> {b.name}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }
 
 export function CheckinOverlay({ checkin, team, selectedId }) {
   const cs = checkin.state
-  const color = TEAMS[team]?.color || '#2E8B3E'
   if (cs.phase === 'idle') return null
   if (cs.phase === 'error' && selectedId && cs.poiId !== selectedId) return null // hráč už vybral jiné místo
-  if (cs.phase === 'done') {
-    return <div className="overlay checkin center"><Success cs={cs} color={color} onClose={checkin.cancel} /></div>
+  if (cs.phase === 'done') return <Stamp cs={cs} team={team} onClose={checkin.cancel} />
+  if (cs.phase === 'error') {
+    return (
+      <div className="toast err" onClick={checkin.cancel}>
+        <Icon name="error" /> {cs.msg}
+      </div>
+    )
   }
   return (
-    <div className="overlay checkin">
-      <b>{cs.name}</b>
-      {cs.phase === 'starting' && <p>Zahajuji check-in…</p>}
-      {cs.phase === 'error' && <p className="err">{cs.msg} <button className="link" onClick={checkin.cancel} aria-label="Zavřít"><Icon name="close" /></button></p>}
-      {cs.phase === 'running' && (
-        <div className="checkin-run">
-          <Ring cs={cs} color={color} />
-          <div>
-            {cs.points != null && <div>Za zabrání: <b>{cs.points} b.</b>{cs.multiplier > 1 && <span className="chip bonus">×{cs.multiplier}</span>}</div>}
-            {cs.offline
-              ? <div className="err">Ztratil se signál k serveru, zkouším znovu…</div>
-              : cs.valid
-                ? <div>Zůstaň do {formatDistance(checkinRadius())} od místa.</div>
-                : <div className="err">{PING_REASONS[cs.reason] || 'Poloha teď neplatí.'}{cs.distance != null && cs.reason === 'OUT_OF_RANGE' && ` (${formatDistance(cs.distance)})`} Odpočet stojí.</div>}
-            <button onClick={checkin.cancel}>Zrušit</button>
-          </div>
-        </div>
-      )}
+    <div className="checkin">
+      {cs.phase === 'running' ? <Ring cs={cs} /> : <div className="ring"><b>…</b></div>}
+      <div className="checkin-body">
+        <b>{cs.name}</b>
+        {cs.phase === 'starting' && <small>Zahajuji check-in…</small>}
+        {cs.phase === 'running' && cs.points != null && (
+          <small className="checkin-pts">{cs.points} b.{cs.multiplier > 1 && ` · ×${cs.multiplier}`}</small>
+        )}
+        {cs.phase === 'running' && (cs.offline
+          ? <span className="warn"><Icon name="cloud_off" /> Bez spojení, zkouším znovu</span>
+          : !cs.valid
+            ? <span className="warn"><Icon name="location_off" /> {PING_REASONS[cs.reason] || 'Poloha neplatí.'}{cs.distance != null && cs.reason === 'OUT_OF_RANGE' && ` ${formatDistance(cs.distance)}`}</span>
+            : <small>Zůstaň do {formatDistance(checkinRadius())}</small>)}
+      </div>
+      <button className="round-btn ghost" onClick={checkin.cancel} aria-label="Zrušit"><Icon name="close" /></button>
     </div>
   )
 }

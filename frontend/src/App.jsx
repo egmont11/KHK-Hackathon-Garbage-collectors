@@ -6,7 +6,7 @@ import { TEAMS, distanceM, formatDistance } from './geo.js'
 import { GROUPS, groupIcon } from './groups.js'
 import { checkinRadius, useCheckin, useGame, useOnline, usePosition } from './hooks.js'
 import { EventsPage, LeaderboardPage, PoiInfoPage, ProfilePage, TransportPage } from './pages.jsx'
-import { DEMO, Icon, TeamBadge, go } from './ui.jsx'
+import { DEMO, Icon, KctMark, TeamBadge, TeamIcon, go } from './ui.jsx'
 
 // Jednoduchý hash router: #/info/<id>, #/doprava/<id>, #/zebricek, #/udalosti, #/profil
 function useRoute() {
@@ -24,7 +24,13 @@ function useRoute() {
 }
 
 function loadPlayer() {
-  try { return JSON.parse(localStorage.getItem('turistak-player')) } catch { return null }
+  try { return JSON.parse(localStorage.getItem('krajanek-player')) } catch { return null }
+}
+
+function clearPlayer() {
+  localStorage.removeItem('krajanek-player')
+  localStorage.removeItem('krajanek-token')
+  localStorage.removeItem('krajanek-checkin')
 }
 
 export default function App() {
@@ -33,20 +39,16 @@ export default function App() {
   // Backend token nezná (restart v paměťovém režimu, token z mocku) -> znovu onboarding.
   useEffect(() => {
     const onUnauthorized = () => {
-      localStorage.removeItem('turistak-player')
-      localStorage.removeItem('turistak-token')
-      localStorage.removeItem('turistak-checkin')
+      clearPlayer()
       setKicked(true)
       setPlayer(null)
       go('')
     }
-    window.addEventListener('turistak-unauthorized', onUnauthorized)
-    return () => window.removeEventListener('turistak-unauthorized', onUnauthorized)
+    window.addEventListener('krajanek-unauthorized', onUnauthorized)
+    return () => window.removeEventListener('krajanek-unauthorized', onUnauthorized)
   }, [])
   const logout = () => {
-    localStorage.removeItem('turistak-player')
-    localStorage.removeItem('turistak-token')
-    localStorage.removeItem('turistak-checkin')
+    clearPlayer()
     setKicked(false)
     setPlayer(null)
     go('')
@@ -73,11 +75,18 @@ function Game({ player, onLogout }) {
   if (route.page === 'info' && routePoi) page = <PoiInfoPage poi={routePoi} live={live[routePoi.properties.id]} visit={visited.get(routePoi.properties.id)} />
   if (route.page === 'doprava' && routePoi) page = <TransportPage poi={routePoi} position={position} />
   if (route.page === 'zebricek') page = <LeaderboardPage season={season} myTeam={team} />
-  if (route.page === 'udalosti') page = <EventsPage pois={pois} poiById={poiById} position={position} visited={visited} onShow={showOnMap} />
+  if (route.page === 'udalosti') page = <EventsPage poiById={poiById} position={position} visited={visited} onShow={showOnMap} />
   if (route.page === 'profil') page = <ProfilePage player={player} me={me} poiById={poiById} onShow={showOnMap} onLogout={onLogout} />
 
+  const tab = (id, icon, label, extra = '') => (
+    <button className={`${extra}${route.page === id ? ' active' : ''}`} onClick={() => go(id)}>
+      <span className="tab-icon"><Icon name={icon} fill={route.page === id} /></span>
+      <span>{label}</span>
+    </button>
+  )
+
   return (
-    <div className="app">
+    <div className="app" style={{ '--team': TEAMS[team]?.color }}>
       <MapPage
         pois={pois}
         live={live}
@@ -91,19 +100,19 @@ function Game({ player, onLogout }) {
       />
       <div className="banners">
         {!online && <div className="banner err"><Icon name="cloud_off" /> Server je nedostupný, zkouším to znovu…</div>}
-        {game.loadError && <div className="banner err">{game.loadError} <button onClick={game.retryLoad}>Zkusit znovu</button></div>}
+        {game.loadError && <div className="banner err"><Icon name="error" /> {game.loadError} <button className="text-btn" onClick={game.retryLoad}>Zkusit znovu</button></div>}
         {geoError && !DEMO && <div className="banner"><Icon name="location_off" /> {geoError}</div>}
         {game.newSeason && (
           <div className="banner info">
             <Icon name="restart_alt" /> Začala nová sezóna {game.newSeason}. Body se vynulovaly, všechna místa jdou zabrat znovu.
-            <button className="link" onClick={game.clearNewSeason} aria-label="Zavřít"><Icon name="close" /></button>
+            <button className="banner-close" onClick={game.clearNewSeason} aria-label="Zavřít"><Icon name="close" /></button>
           </div>
         )}
       </div>
       <nav className="navbar">
-        <button onClick={() => go('zebricek')}><Icon name="leaderboard" /><br />Žebříček</button>
-        <button onClick={() => go('udalosti')}><Icon name="timer" /><br />Události</button>
-        <button onClick={() => go('profil')}><Icon name="person" /><br />Profil</button>
+        {tab('zebricek', 'trophy', 'Žebříček')}
+        {tab('udalosti', 'flag', 'Questy', 'quests')}
+        {tab('profil', 'person', 'Profil')}
       </nav>
       {page && <div className="page">{page}</div>}
     </div>
@@ -143,7 +152,7 @@ function MapPage({ pois, live, visited, team, position, setPosition, selected, s
       return true
     })
   }, [pois, live, visited, filters, position])
-  const activeFilters = Object.entries(filters).filter(([k, v]) => v !== EMPTY_FILTERS[k]).length
+  const filterActive = Object.entries(filters).some(([k, v]) => v !== EMPTY_FILTERS[k])
 
   const sel = selected?.properties
   const selLive = (sel && live[sel.id]) || {}
@@ -155,11 +164,12 @@ function MapPage({ pois, live, visited, team, position, setPosition, selected, s
   const inRange = dist != null && dist <= radius
   const cs = checkin.state
   const busy = cs.phase === 'running' || cs.phase === 'starting'
+  const stop = sel?.nearest_stop
 
   function claim() {
-    if (selVisit) return flash('Tohle místo už máš v této sezóně zabrané.')
-    if (!position) return flash(DEMO ? 'Klikni do mapy, kde stojíš.' : 'Neznám tvoji polohu.')
-    if (!inRange) return flash(`Jsi mimo dosah (${formatDistance(dist)}, potřeba do ${radius} m).`)
+    if (selVisit) return flash('Už zabráno')
+    if (!position) return flash(DEMO ? 'Klikni do mapy, kde stojíš' : 'Bez polohy')
+    if (!inRange) return flash(`Mimo dosah · ${formatDistance(dist)}`)
     checkin.start(selected)
   }
 
@@ -175,40 +185,46 @@ function MapPage({ pois, live, visited, team, position, setPosition, selected, s
         demo={DEMO}
         onDemoClick={(lat, lon) => setPosition({ lat, lon, accuracy_m: 5 })}
       />
-      {DEMO && <div className="overlay demo-hint">demo: klik do mapy = tvoje poloha</div>}
 
-      <button className="overlay round filter-btn" onClick={() => setFilterOpen(!filterOpen)} aria-label="Filtr">
-        <Icon name="filter_alt" />
-        {activeFilters > 0 && <span className="count">{activeFilters}</span>}
-      </button>
+      <header className="topbar">
+        <div className="brand">
+          <KctMark team={team} className="brand-kct" />
+          Krajánek
+          {DEMO && <span className="demo-pill">demo</span>}
+        </div>
+        <button className={`round-btn${filterOpen ? ' on' : ''}`} onClick={() => setFilterOpen(!filterOpen)} aria-label="Filtr">
+          <Icon name={filterOpen ? 'close' : 'tune'} />
+          {filterActive && !filterOpen && <i className="dot" />}
+        </button>
+      </header>
+
       {filterOpen && (
         <Filters pois={pois} filters={filters} setFilters={setFilters} count={filtered.length} position={position} />
       )}
 
       <CheckinOverlay checkin={checkin} team={team} selectedId={sel?.id} />
-      {toast && <div className="overlay toast">{toast}</div>}
+      {toast && <div className="toast"><Icon name="location_off" /> {toast}</div>}
 
-      {sel && (
-        <div className="overlay poi-actions">
-          <div className="poi-label">
-            <div>
-              <b>{sel.name}</b>
-              <button className="link" onClick={() => setSelectedId(null)} aria-label="Zrušit výběr"><Icon name="close" /></button>
-            </div>
-            <div className="poi-meta">
+      {sel && !filterOpen && (
+        <div className="poi-panel">
+          <div className="signpost">
+            <button className="signpost-close" onClick={() => setSelectedId(null)} aria-label="Zavřít"><Icon name="close" /></button>
+            <div className="signpost-title">{sel.name}</div>
+            <div className="signpost-meta">
               {selLive.event_multiplier
-                ? <><s>{sel.points}</s> <b>{selLive.bonus_points} b.</b> <span className="chip bonus">×{selLive.event_multiplier}</span></>
-                : <b>{sel.points} b.</b>}
-              {dist != null && ` · ${formatDistance(dist)}`}
-              {selLive.owner_team && <> · drží <TeamBadge team={selLive.owner_team} /></>}
+                ? <span className="pts">{selLive.bonus_points} b. ×{selLive.event_multiplier}</span>
+                : <span className="pts">{sel.points} b.</span>}
+              {dist != null && <span><Icon name="near_me" />{formatDistance(dist)}</span>}
+              {stop && <span><Icon name={stop.type === 'train' ? 'train' : 'directions_bus'} />{formatDistance(stop.distance_m)}</span>}
+              {selLive.owner_team && <span><Icon name="flag" fill /><TeamBadge team={selLive.owner_team} /></span>}
             </div>
-            {selVisit && <div className="poi-meta visited-note"><Icon name="check_circle" /> Zabráno {new Date(selVisit.at).toLocaleDateString('cs')} (+{selVisit.points} b.)</div>}
+            {selVisit && <div className="signpost-visit"><Icon name="check_circle" fill /> Zabráno {new Date(selVisit.at).toLocaleDateString('cs')} · +{selVisit.points} b.</div>}
           </div>
-          <div className="buttons">
-            <button className="round" onClick={() => go('doprava', sel.id)} aria-label="Doprava"><Icon name="directions_bus" /></button>
-            <button className="round" onClick={() => go('info', sel.id)} aria-label="Informace"><Icon name="question_mark" /></button>
-            <button className={`claim ${inRange && !selVisit ? '' : 'disabled'}`} onClick={claim} disabled={busy}>
-              {selVisit ? 'Zabráno' : busy && cs.poiId === sel.id ? 'Zabírám…' : 'Zabrat'}
+          <div className="poi-buttons">
+            <button className="round-btn big" onClick={() => go('doprava', sel.id)} aria-label="Doprava"><Icon name="directions_bus" /></button>
+            <button className="round-btn big" onClick={() => go('info', sel.id)} aria-label="Informace"><Icon name="info" /></button>
+            <button className={`claim${inRange && !selVisit ? '' : ' far'}`} onClick={claim} disabled={busy}>
+              {selVisit ? <>Zabráno <Icon name="check" /></> : busy && cs.poiId === sel.id ? 'Zabírám…' : <>Zabrat <Icon name="flag" fill /></>}
             </button>
           </div>
         </div>
@@ -228,52 +244,74 @@ function Filters({ pois, filters, setFilters, count, position }) {
     return [...m].sort((a, b) => a[1].localeCompare(b[1], 'cs'))
   }, [pois, filters.group])
   const setF = (k) => (e) => setFilters({ ...filters, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
+  const toggle = (k, icon, label) => (
+    <label className="row toggle">
+      <Icon name={icon} />
+      <span>{label}</span>
+      <input type="checkbox" checked={filters[k]} onChange={setF(k)} />
+      <i />
+    </label>
+  )
   return (
-    <div className="overlay filter-panel">
-      <b>Filtr ({count} / {pois.length})</b>
-      <input placeholder="hledat název / obec" value={filters.q} onChange={setF('q')} />
+    <div className="sheet filter-sheet">
+      <label className="search">
+        <Icon name="search" />
+        <input placeholder="Hledat" value={filters.q} onChange={setF('q')} />
+      </label>
       <div className="group-chips">
         {groups.map((g) => (
-          <button key={g} title={GROUPS[g]?.label ?? g} className={filters.group === g ? 'active' : ''}
+          <button key={g} className={filters.group === g ? 'active' : ''}
             onClick={() => setFilters({ ...filters, group: filters.group === g ? '' : g, category: '' })}>
             <Icon name={groupIcon(g)} />
+            <span>{GROUPS[g]?.label.split(' ')[0] ?? g}</span>
           </button>
         ))}
       </div>
-      {filters.group && <small>{GROUPS[filters.group]?.label}</small>}
       <select value={filters.category} onChange={setF('category')}>
-        <option value="">všechny kategorie</option>
+        <option value="">Všechny kategorie</option>
         {categories.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
       </select>
       <select value={filters.owner} onChange={setF('owner')}>
-        <option value="">kdokoli drží</option>
-        <option value="none">nikdo nedrží</option>
-        {Object.entries(TEAMS).map(([id, t]) => <option key={id} value={id}>drží {t.label}</option>)}
+        <option value="">Kdokoli drží</option>
+        <option value="none">Nikdo nedrží</option>
+        {Object.entries(TEAMS).map(([id, t]) => <option key={id} value={id}>Drží {t.label}</option>)}
       </select>
-      <label>min. body: {filters.minPoints} <input type="range" min="0" max="100" step="5" value={filters.minPoints} onChange={(e) => setFilters({ ...filters, minPoints: +e.target.value })} /></label>
-      <label>do km ode mě: <input type="number" min="0" style={{ width: 60 }} value={filters.maxKm} onChange={setF('maxKm')} disabled={!position} /></label>
-      <label><input type="checkbox" checked={filters.nearStop} onChange={setF('nearStop')} /> zastávka do 500 m</label>
-      <label><input type="checkbox" checked={filters.bonus} onChange={setF('bonus')} /> jen bonusová místa</label>
-      <label><input type="checkbox" checked={filters.unvisited} onChange={setF('unvisited')} /> jen nezabraná mnou</label>
-      <button onClick={() => setFilters(EMPTY_FILTERS)}>zrušit filtr</button>
+      <label className="row">
+        <Icon name="star" />
+        <input type="range" min="0" max="100" step="5" value={filters.minPoints} onChange={(e) => setFilters({ ...filters, minPoints: +e.target.value })} />
+        <b>{filters.minPoints}+</b>
+      </label>
+      <label className={`row${position ? '' : ' off'}`}>
+        <Icon name="near_me" />
+        <input type="number" min="0" inputMode="numeric" placeholder="–" value={filters.maxKm} onChange={setF('maxKm')} disabled={!position} />
+        <b>km</b>
+      </label>
+      {toggle('nearStop', 'directions_bus', '≤ 500 m')}
+      {toggle('bonus', 'bolt', 'Jen bonus')}
+      {toggle('unvisited', 'flag', 'Jen nezabrané')}
+      <div className="filter-foot">
+        <button className="text-btn" onClick={() => setFilters(EMPTY_FILTERS)}><Icon name="restart_alt" /> Reset</button>
+        <span className="count">{count}<small> / {pois.length}</small></span>
+      </div>
     </div>
   )
 }
 
 function Onboarding({ onDone, kicked }) {
   const [name, setName] = useState('')
-  const [team, setTeam] = useState('hory')
+  const [team, setTeam] = useState(null)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   async function submit(e) {
     e.preventDefault()
+    if (!team || !name.trim()) return
     setBusy(true)
     setError(null)
     try {
       const { player_id, token } = await api.createPlayer({ name: name.trim(), team })
       const player = { player_id, name: name.trim(), team }
-      localStorage.setItem('turistak-token', token)
-      localStorage.setItem('turistak-player', JSON.stringify(player))
+      localStorage.setItem('krajanek-token', token)
+      localStorage.setItem('krajanek-player', JSON.stringify(player))
       onDone(player)
     } catch (err) {
       setError(err.message)
@@ -282,19 +320,33 @@ function Onboarding({ onDone, kicked }) {
     }
   }
   return (
-    <form className="onboarding" onSubmit={submit}>
-      <h1>Turisťák</h1>
-      <p>Objevuj, dobývej, poznávej kraj.</p>
-      {kicked && <p className="err">Server tvůj účet nezná (nejspíš se restartoval). Založ si prosím hráče znovu.</p>}
-      <fieldset disabled={busy}>
-        <legend>Jak se jmenuješ a za koho hraješ?</legend>
-        <input required maxLength={40} placeholder="jméno" value={name} onChange={(e) => setName(e.target.value)} />
-        {Object.entries(TEAMS).map(([id]) => (
-          <label key={id}><input type="radio" name="team" checked={team === id} onChange={() => setTeam(id)} /> <TeamBadge team={id} /></label>
-        ))}
-        <button>{busy ? 'Zakládám…' : 'Hrát'}</button>
-        {error && <p className="err">{error}</p>}
-      </fieldset>
+    <form className="onboarding" onSubmit={submit} style={{ '--team': team ? TEAMS[team].color : undefined }}>
+      <div className="onboarding-brand">
+        <KctMark team={team || 'lesy'} />
+        <h1>Krajánek</h1>
+      </div>
+      {kicked && <p className="err">Server tvůj účet nezná (nejspíš se restartoval). Založ si hráče znovu.</p>}
+      <label className="field">
+        <span>Jméno</span>
+        <input className="name-input" required maxLength={40} autoComplete="nickname" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
+      </label>
+      <div className="field">
+        <span>Tým</span>
+        <div className="team-pick">
+          {Object.entries(TEAMS).map(([id, t]) => (
+            <button type="button" key={id} className={`team-card${team === id ? ' active' : ''}`} style={{ '--c': t.color }}
+              onClick={() => setTeam(id)} aria-pressed={team === id} disabled={busy}>
+              <TeamIcon team={id} size={44} />
+              <KctMark team={id} className="big" />
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <button className="play" disabled={busy || !team || !name.trim()}>
+        {busy ? 'Zakládám…' : <>Hrát <Icon name="arrow_forward" /></>}
+      </button>
+      {error && <p className="err">{error}</p>}
     </form>
   )
 }

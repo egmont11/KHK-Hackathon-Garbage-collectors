@@ -3,6 +3,9 @@ import type { Pool } from "pg";
 import { teamIds } from "./config.js";
 import type { Checkin, Poi, TeamId } from "./types.js";
 
+/** Team battle at one place in one season: check-ins (owner) and points (topTeam) per team. */
+type Ownership = { counts: Record<TeamId, number>; owner: TeamId; points: Record<TeamId, number>; topTeam: TeamId };
+
 export type Player = { id: string; name: string; team: TeamId; token: string; createdAt: number };
 export type Season = { id: string; startsAt: number; endsAt: number };
 /** Anonymous visit record used for statistics: no player id, no route. */
@@ -28,7 +31,7 @@ export class MemoryStore {
    * The team with the most check-ins this season owns the place; on a tie the holder keeps it.
    * Since a player can check in at a place once per season, this is "most different players".
    */
-  private readonly ownership = new Map<string, Map<string, { counts: Record<TeamId, number>; owner: TeamId }>>();
+  private readonly ownership = new Map<string, Map<string, Ownership>>();
   /** seasonId -> playerId -> visited POI ids */
   private readonly playerVisits = new Map<string, Map<string, PlayerVisit[]>>();
 
@@ -190,11 +193,14 @@ export class MemoryStore {
     const last = this.lastVisit.get(poi.id);
     if (!last || last.at <= at) this.lastVisit.set(poi.id, { team, at });
     const seasonOwnership = this.ownership.get(seasonId) ?? new Map();
-    const entry = seasonOwnership.get(poi.id) ?? { counts: { hory: 0, reky: 0, lesy: 0 }, owner: team };
+    const entry: Ownership = seasonOwnership.get(poi.id) ?? { counts: { hory: 0, reky: 0, lesy: 0 }, owner: team, points: { hory: 0, reky: 0, lesy: 0 }, topTeam: team };
     const previousOwner = entry.counts[entry.owner] > 0 ? entry.owner : null;
     entry.counts[team]++;
     if (entry.counts[team] > entry.counts[entry.owner]) entry.owner = team;
     const tookOver = previousOwner !== null && previousOwner !== team && entry.owner === team;
+    // Most points at the place this season (bonuses count); on a tie the leading team keeps it.
+    entry.points[team] += points;
+    if (entry.points[team] > entry.points[entry.topTeam]) entry.topTeam = team;
     seasonOwnership.set(poi.id, entry);
     this.ownership.set(seasonId, seasonOwnership);
     const season = this.playerVisits.get(seasonId) ?? new Map();
@@ -247,7 +253,7 @@ export class MemoryStore {
   }
 
   /** Owning team of a place in a season (null = nobody checked in yet). */
-  owner(poiId: string, seasonId: string): { owner: TeamId; counts: Record<TeamId, number> } | null {
+  owner(poiId: string, seasonId: string): Ownership | null {
     return this.ownership.get(seasonId)?.get(poiId) ?? null;
   }
 

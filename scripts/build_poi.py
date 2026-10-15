@@ -109,7 +109,7 @@ ORP_RE = re.compile(r"52\d\d")  # kódy ORP v KHK: 5201–5215
 def http_json(url, tries=4):
     for i in range(tries):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "turistak-build/1.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "krajanek-build/1.0"})
             with urllib.request.urlopen(req, timeout=90) as r:
                 return json.load(r)
         except Exception:

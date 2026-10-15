@@ -42,7 +42,7 @@ export async function loadStops() {
 
 // --- Real API ---
 async function http(method, path, body) {
-  const token = localStorage.getItem('turistak-token')
+  const token = localStorage.getItem('krajanek-token')
   let res
   try {
     res = await fetch(`${API_URL}${path}`, {
@@ -61,7 +61,7 @@ async function http(method, path, body) {
   if (unreachable) throw Object.assign(new Error('Server je nedostupný. Zkontroluj připojení.'), { code: 'OFFLINE' })
   if (!res.ok) {
     // Neplatný hráčský token (např. restart backendu v paměťovém režimu) -> App pošle hráče na onboarding.
-    if (res.status === 401 && token) window.dispatchEvent(new Event('turistak-unauthorized'))
+    if (res.status === 401 && token) window.dispatchEvent(new Event('krajanek-unauthorized'))
     throw Object.assign(new Error(data.error?.message || data.message || `HTTP ${res.status}`), { code: data.error?.code, status: res.status })
   }
   return data
@@ -93,7 +93,7 @@ const real = {
 }
 
 // --- Mock (bez backendu, jen pro vývoj UI) ---
-const KEY = 'turistak-mock'
+const KEY = 'krajanek-mock'
 const RULES = { radius_m: 100, max_accuracy_m: 50, max_gap_s: 15, required_s: 60, max_speed_kmh: 30 }
 const EVENTS = { per_week: 3, multiplier: 2 }
 const TEAM_IDS = ['hory', 'reky', 'lesy']
@@ -121,7 +121,7 @@ function randomId() {
   return [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 const save = (s) => localStorage.setItem(KEY, JSON.stringify(s))
-const mePlayer = (s) => s.players[localStorage.getItem('turistak-token')]
+const mePlayer = (s) => s.players[localStorage.getItem('krajanek-token')]
 const fail = (code, message) => { throw Object.assign(new Error(message), { code }) }
 const doneCheckins = (s) => Object.values(s.checkins).filter((c) => c.awarded_points)
 

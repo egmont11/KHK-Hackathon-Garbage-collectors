@@ -12,7 +12,7 @@ const GEO_ERRORS = {
   3: 'Zjišťování polohy trvá moc dlouho.',
 }
 
-const DEMO_POS_KEY = 'turistak-demo-position'
+const DEMO_POS_KEY = 'krajanek-demo-position'
 
 export function usePosition() {
   // demo: poloha z kliknutí přežije reload (kvůli obnovení rozběhnutého check-inu)
@@ -103,8 +103,8 @@ export function useGame() {
 // (pak ping na starý vrací CHECKIN_NOT_FOUND). Proto: žádné souběžné starty, pingy jen
 // z posledního běhu (run) a nikdy dva pingy najednou (setTimeout řetěz místo setInterval).
 // Rozběhnutý check-in se pamatuje v localStorage a po reloadu stránky pokračuje.
-const STORE_KEY = 'turistak-checkin'
-const RADIUS_KEY = 'turistak-radius'
+const STORE_KEY = 'krajanek-checkin'
+const RADIUS_KEY = 'krajanek-radius'
 
 export const checkinRadius = () => Number(localStorage.getItem(RADIUS_KEY)) || 100
 
