@@ -3,6 +3,7 @@ import MapView from './MapView.jsx'
 import { api, loadPois } from './api.js'
 import { TEAMS, distanceM, formatDistance } from './geo.js'
 import { DEMO, Icon, TeamBadge, go } from './ui.jsx'
+import { GROUPS, groupIcon } from './groups.js'
 import { EventsPage, LeaderboardPage, PoiInfoPage, ProfilePage, TransportPage } from './pages.jsx'
 
 const PING_EVERY_MS = 5000
@@ -249,7 +250,7 @@ function Filters({ pois, filters, setFilters, count, position }) {
         {groups.map((g) => (
           <button key={g} title={GROUPS[g]?.label ?? g} className={filters.group === g ? 'active' : ''}
             onClick={() => setFilters({ ...filters, group: filters.group === g ? '' : g, category: '' })}>
-            <span className="material-symbols-rounded">{groupIcon(g)}</span>
+            <Icon name={groupIcon(g)} />
           </button>
         ))}
       </div>

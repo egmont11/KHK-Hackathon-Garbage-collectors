@@ -90,7 +90,7 @@ DATASETS = [
     ("Kulturní_domy", "kulturni_domy", "Kulturní domy a kongresová centra", "kultura"),
     ("Hudební_kluby_a_festival_parky", "kluby", "Hudební kluby a festival parky", "kultura"),
     ("Knihovny", "knihovny", "Knihovny", "kultura"),
-    ("Zábavní_centra", "zabava", "Zábavní centra", "ostatni"),
+    ("Zábavní_centra", "zabava", "Zábavní centra", "sport"),
     ("Infocentra", "infocentra", "Infocentra", "sluzby"),
     ("Kempy", "kempy", "Kempy", "sluzby"),
     ("Služby", "sluzby", "Služby", "sluzby"),

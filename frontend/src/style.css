@@ -41,3 +41,11 @@ button.link { border: 0; background: none; font-size: 16px; }
 .material-symbols-outlined { font-size: 20px; vertical-align: middle; }
 .round .material-symbols-outlined { font-size: 22px; }
 .poi-label button.link .material-symbols-outlined { font-size: 16px; }
+
+/* Marker POI: kolečko s ikonou skupiny, barva podle týmu, který ho zabral */
+.poi-marker { width: 100%; height: 100%; box-sizing: border-box; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 3px rgba(0, 0, 0, .6); color: #fff; display: flex; align-items: center; justify-content: center; }
+.poi-marker .material-symbols-outlined { font-size: 16px; }
+.poi-marker.selected .material-symbols-outlined { font-size: 20px; }
+.group-chips { display: flex; gap: 4px; }
+.group-chips button { flex: 1; height: 34px; border: 1px solid #ccc; border-radius: 6px; background: #fff; padding: 0; }
+.group-chips button.active { background: #333; border-color: #333; color: #fff; }

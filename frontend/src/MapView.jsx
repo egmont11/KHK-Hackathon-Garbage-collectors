@@ -11,7 +11,7 @@ function poiIcon(group, owner, selected) {
   const size = selected ? 34 : 26
   return L.divIcon({
     className: '',
-    html: `<div class="poi-marker${selected ? ' selected' : ''}" style="background:${color}"><span class="material-symbols-rounded">${groupIcon(group)}</span></div>`,
+    html: `<div class="poi-marker${selected ? ' selected' : ''}" style="background:${color}"><span class="material-symbols-outlined">${groupIcon(group)}</span></div>`,
     iconSize: [size, size],
   })
 }

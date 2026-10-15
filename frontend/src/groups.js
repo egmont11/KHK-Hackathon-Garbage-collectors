@@ -1,5 +1,4 @@
 // Skupiny POI (pole `group` v poi.geojson) a jejich ikony z Google Material Symbols.
-// Při přidání ikony ji doplň i do `icon_names` v index.html (abecedně).
 export const GROUPS = {
   pamatky: { label: 'Památky', icon: 'castle' },
   priroda: { label: 'Příroda', icon: 'forest' },
