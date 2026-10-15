@@ -85,6 +85,6 @@ const pwa = VitePWA({
 // HTTPS=1 (npm run dev:https): self-signed cert, aby na telefonech v síti fungovala GPS.
 export default defineConfig({
   plugins: [react(), repoData(), pwa, ...(process.env.HTTPS ? [basicSsl()] : [])],
-  server: { proxy },
-  preview: { proxy },
+  server: { proxy, host: '127.0.0.1', cors: false },
+  preview: { proxy, host: '127.0.0.1', cors: false },
 })

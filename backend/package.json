@@ -8,7 +8,8 @@
     "demo": "tsx src/server.ts --demo",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/smoke.ts"
+    "test": "tsx test/smoke.ts",
+    "test:security": "tsx --test test/security.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",
@@ -18,6 +19,7 @@
     "pg": "^8.13.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "@types/node": "^22.13.4",
     "@types/pg": "^8.11.11",
     "tsx": "^4.19.3",

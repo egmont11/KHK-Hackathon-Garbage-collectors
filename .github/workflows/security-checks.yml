@@ -1,0 +1,56 @@
+name: Security regression checks
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:security
+      - run: npm test
+      - run: npm audit --audit-level=moderate
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --audit-level=moderate
+  deployment-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config --quiet
+        env:
+          SITE_ADDRESS: example.invalid
+          POSTGRES_PASSWORD: CiDatabaseFixture123
+          ADMIN_PASSWORD: CiAdministratorFixture123
+      - name: Validate Caddy configuration without starting the site
+        run: >-
+          docker run --rm --entrypoint caddy -e SITE_ADDRESS=example.invalid
+          -v "$GITHUB_WORKSPACE/deploy/Caddyfile:/etc/caddy/Caddyfile:ro"
+          caddy:2.8-alpine validate --config /etc/caddy/Caddyfile --adapter caddyfile

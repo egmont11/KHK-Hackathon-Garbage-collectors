@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 const port = 3999;
 const base = `http://127.0.0.1:${port}`;
 const server = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
-  env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", CHECKIN_SECONDS: "3", LOG_LEVEL: "warn", DATABASE_URL: process.env.TEST_DATABASE_URL ?? "", DEMO_SEED: "0", ADMIN_PASSWORD: "Vychozi-heslo1", ADMIN_RESET: "1", ADMIN_MUST_CHANGE: "1" },
+  env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", CHECKIN_SECONDS: "3", LOG_LEVEL: process.env.SMOKE_TRACE ? "info" : "warn", DATABASE_URL: process.env.TEST_DATABASE_URL ?? "", PGHOST: "", NODE_ENV: "test", DEMO_SEED: "0", REGISTRATIONS_PER_HOUR: "30", ADMIN_PASSWORD: "Vychozi-heslo1", ADMIN_RESET: "1", ADMIN_MUST_CHANGE: "1" },
   stdio: ["ignore", "inherit", "inherit"],
 });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -17,7 +17,7 @@ async function api(path: string, init: RequestInit & { token?: string; json?: un
   const headers: Record<string, string> = {};
   if (init.token) headers.authorization = `Bearer ${init.token}`;
   if (init.json !== undefined || init.method === "POST") headers["content-type"] = "application/json";
-  const res = await fetch(base + path, { ...init, headers, body: init.json !== undefined ? JSON.stringify(init.json) : init.method === "POST" ? "" : undefined });
+  const res = await fetch(base + path, { ...init, signal: AbortSignal.timeout(10_000), headers, body: init.json !== undefined ? JSON.stringify(init.json) : init.method === "POST" ? "" : undefined });
   return { status: res.status, body: await res.json() as any };
 }
 
@@ -39,13 +39,15 @@ try {
   assert.equal((await api("/api/players", { method: "POST", json: { name: "Tester", team: "lesy" } })).body.error.code, "INVALID_PASSWORD");
   const player = await api("/api/players", { method: "POST", json: { name: "Tester", team: "lesy", password: "tajne-heslo" } });
   assert.equal(player.status, 201);
-  const token = player.body.token;
+  let token = player.body.token;
   // Accounts: unique name (case-insensitive) and login with name + password from another device.
   assert.equal((await api("/api/players", { method: "POST", json: { name: "tester", team: "hory", password: "jine-heslo" } })).body.error.code, "NAME_TAKEN");
   assert.equal((await api("/api/players/login", { method: "POST", json: { name: "Tester", password: "spatne" } })).status, 401);
   const playerLogin = await api("/api/players/login", { method: "POST", json: { name: "TESTER", password: "tajne-heslo" } });
   assert.equal(playerLogin.status, 200);
-  assert.equal(playerLogin.body.token, token);
+  assert.notEqual(playerLogin.body.token, token);
+  assert.equal((await api("/api/players/me", { token })).status, 401);
+  token = playerLogin.body.token;
   assert.equal(playerLogin.body.team, "lesy");
 
   const far = await api("/api/checkins/start", { method: "POST", token, json: { poi_id: poi.properties.id, lat: lat + 0.01, lon, accuracy_m: 10 } });

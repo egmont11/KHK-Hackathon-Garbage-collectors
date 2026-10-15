@@ -30,10 +30,11 @@ const weeklyExcludedCategories = new Set(["sluzby", "knihovny", "infocentra", "k
 /** Monday 2024-01-01, local midnight. Rounds are counted in Prague local time from here. */
 const EPOCH_LOCAL = Date.UTC(2024, 0, 1);
 
-function pragueOffsetMs(at: number): number {
-  const parts = new Intl.DateTimeFormat("en-GB", {
+const pragueFormatter = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Prague", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
-  }).formatToParts(new Date(at));
+});
+function pragueOffsetMs(at: number): number {
+  const parts = pragueFormatter.formatToParts(new Date(at));
   const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
   const local = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
   return local - Math.floor(at / 1000) * 1000;
@@ -74,6 +75,7 @@ function uuidFrom(seed: string) {
 }
 
 export class EventManager {
+  private roundCache = new Map<number, { second: number; value: ReturnType<typeof roundAt> }>();
   private weeklyCache: { round: number; events: WeeklyEvent[] } | null = null;
   private readonly weeklyCandidates: (Poi & Coordinates)[];
   private readonly dailyCategories: string[];
@@ -93,9 +95,18 @@ export class EventManager {
     this.dailyCategories = dailyBonusCategories.filter((category) => (this.categoryCounts.get(category) ?? 0) >= 10);
   }
 
+  private round(now: number, length: number) {
+    const second = Math.floor(now / 1000);
+    const cached = this.roundCache.get(length);
+    if (cached?.second === second) return cached.value;
+    const value = roundAt(now, length);
+    this.roundCache.set(length, { second, value });
+    return value;
+  }
+
   weekly(now = Date.now()): WeeklyEvent[] {
     if (!config.eventsEnabled || !this.weeklyCandidates.length || config.weeklyEventCount <= 0) return [];
-    const round = roundAt(now, config.weeklyPeriodSeconds);
+    const round = this.round(now, config.weeklyPeriodSeconds);
     if (this.weeklyCache?.round === round.index) return this.weeklyCache.events;
     const order = shuffled(this.weeklyCandidates, seededRandom(`krajanek-weekly-${round.index}-${config.weeklyPeriodSeconds}`));
     // Greedy pick with the minimum spacing; relax it only if the catalog can't satisfy it.
@@ -124,7 +135,7 @@ export class EventManager {
 
   /** Hranice týdenního kola, ve kterém leží `at`. */
   weeklyRound(at = Date.now()) {
-    return roundAt(at, config.weeklyPeriodSeconds);
+    return this.round(at, config.weeklyPeriodSeconds);
   }
 
   active(now = Date.now()): QuickEvent[] {
@@ -134,7 +145,7 @@ export class EventManager {
   /** Osobní denní quest hráče: kategorie odvozená z hráče a dne (stejná po restartu). */
   dailyFor(playerId: string, now = Date.now()): DailyEvent | null {
     if (!config.eventsEnabled || !this.dailyCategories.length) return null;
-    const round = roundAt(now, config.dailyPeriodSeconds);
+    const round = this.round(now, config.dailyPeriodSeconds);
     const rand = seededRandom(`krajanek-daily-${round.index}-${config.dailyPeriodSeconds}-${playerId}`);
     const category = this.dailyCategories[Math.floor(rand() * this.dailyCategories.length)];
     return {

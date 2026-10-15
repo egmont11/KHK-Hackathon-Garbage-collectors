@@ -1,12 +1,13 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import { teamIds } from "./config.js";
+import { config, teamIds } from "./config.js";
+import { tokenHash } from "./security.js";
 import type { Checkin, Poi, TeamId } from "./types.js";
 
 /** Team battle at one place in one season: check-ins (owner) and points (topTeam) per team. */
 type Ownership = { counts: Record<TeamId, number>; owner: TeamId; points: Record<TeamId, number>; topTeam: TeamId };
 
-export type Player = { id: string; name: string; team: TeamId; token: string; createdAt: number; passwordHash: string | null };
+export type Player = { id: string; name: string; team: TeamId; token: string; tokenExpiresAt: number; createdAt: number; passwordHash: string | null };
 
 /** Login name key: case- and accent-form-insensitive, trimmed. */
 export const nameKey = (name: string) => name.normalize("NFC").trim().toLocaleLowerCase("cs");
@@ -47,9 +48,9 @@ export class MemoryStore {
     if (!this.pool) return;
     await this.pool.query("DELETE FROM checkins WHERE finished_at IS NULL");
     await this.prunePingsInDb();
-    const players = await this.pool.query("SELECT id, name, team, token, created_at, password_hash FROM players");
+    const players = await this.pool.query("SELECT id, name, team, token, token_expires_at, created_at, password_hash FROM players");
     for (const row of players.rows) this.indexPlayer({
-      id: row.id, name: row.name, team: row.team as TeamId, token: row.token, createdAt: new Date(row.created_at).getTime(),
+      id: row.id, name: row.name, team: row.team as TeamId, token: row.token, tokenExpiresAt: new Date(row.token_expires_at).getTime(), createdAt: new Date(row.created_at).getTime(),
       passwordHash: row.password_hash ?? null,
     });
     const rewards = await this.pool.query("SELECT id FROM quest_awards");
@@ -131,8 +132,10 @@ export class MemoryStore {
   }
 
   private indexPlayer(player: Player) {
+    const previous = this.players.get(player.id);
+    if (previous && previous.token !== player.token) this.byToken.delete(previous.token);
     this.players.set(player.id, player);
-    this.byToken.set(player.token, player);
+    if (player.tokenExpiresAt > Date.now()) this.byToken.set(player.token, player);
     if (!this.byName.has(nameKey(player.name)) || player.passwordHash) this.byName.set(nameKey(player.name), player);
   }
 
@@ -142,11 +145,33 @@ export class MemoryStore {
   }
 
   async addPlayer(name: string, team: TeamId, passwordHash: string | null = null): Promise<Player> {
-    const player: Player = { id: randomUUID(), name, team, token: randomUUID(), createdAt: Date.now(), passwordHash };
-    if (this.pool) await this.pool.query(
-      "INSERT INTO players (id, name, team, token, created_at, password_hash) VALUES ($1, $2, $3, $4, $5, $6)",
-      [player.id, player.name, player.team, player.token, new Date(player.createdAt).toISOString(), passwordHash],
-    );
+    const player: Player = { id: randomUUID(), name, team, token: tokenHash(randomBytes(32).toString("base64url")), tokenExpiresAt: 0, createdAt: Date.now(), passwordHash };
+    if (this.pool) {
+      const client = await this.pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("LOCK TABLE players IN SHARE ROW EXCLUSIVE MODE");
+        const count = await client.query("SELECT count(*)::int AS count FROM players");
+        if (count.rows[0].count >= config.maxPlayers) throw Object.assign(new Error("Player capacity reached"), { statusCode: 503, code: "PLAYER_CAPACITY" });
+        await client.query(
+          "INSERT INTO players (id, name, team, token, created_at, password_hash) VALUES ($1, $2, $3, $4, $5, $6)",
+          [player.id, player.name, player.team, player.token, new Date(player.createdAt).toISOString(), passwordHash],
+        );
+        await client.query("COMMIT");
+      } catch (error) { await client.query("ROLLBACK"); throw error; }
+      finally { client.release(); }
+    }
+    this.indexPlayer(player);
+    return player;
+  }
+
+  async findPlayerByName(name: string): Promise<Player | undefined> {
+    if (!this.pool) return this.playerByName(name);
+    const result = await this.pool.query("SELECT * FROM players WHERE lower(name) = lower($1) AND password_hash IS NOT NULL", [name.normalize("NFC").trim()]);
+    const row = result.rows[0];
+    if (!row) return undefined;
+    const player: Player = { id: row.id, name: row.name, team: row.team, token: row.token,
+      tokenExpiresAt: new Date(row.token_expires_at).getTime(), createdAt: new Date(row.created_at).getTime(), passwordHash: row.password_hash };
     this.indexPlayer(player);
     return player;
   }
@@ -156,6 +181,9 @@ export class MemoryStore {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      // Serialize starts for one player across processes and delete abandoned rows, not just RAM.
+      await client.query("SELECT id FROM players WHERE id = $1 FOR UPDATE", [checkin.playerId]);
+      await client.query("DELETE FROM checkins WHERE player_id = $1 AND finished_at IS NULL", [checkin.playerId]);
       await client.query(
         "INSERT INTO checkins (id, player_id, poi_id, season_id, started_at) VALUES ($1, $2, $3, $4, $5)",
         [checkin.id, checkin.playerId, checkin.poiId, checkin.seasonId, new Date(checkin.startedAt).toISOString()],
@@ -181,8 +209,44 @@ export class MemoryStore {
     );
   }
 
-  playerForToken(token?: string): Player | undefined {
-    return token ? this.byToken.get(token) : undefined;
+  async issuePlayerToken(player: Player): Promise<string> {
+    const raw = randomBytes(32).toString("base64url");
+    const digest = tokenHash(raw);
+    const expiresAt = Date.now() + config.playerSessionHours * 3600_000;
+    if (this.pool) await this.pool.query(
+      "UPDATE players SET token = $2, token_expires_at = $3 WHERE id = $1",
+      [player.id, digest, new Date(expiresAt).toISOString()],
+    );
+    this.byToken.delete(player.token);
+    player.token = digest;
+    player.tokenExpiresAt = expiresAt;
+    this.byToken.set(digest, player);
+    return raw;
+  }
+
+  async revokePlayerToken(raw: string): Promise<void> {
+    const digest = tokenHash(raw);
+    if (this.pool) await this.pool.query("UPDATE players SET token_expires_at = now() WHERE token = $1", [digest]);
+    const player = this.byToken.get(digest);
+    if (player) player.tokenExpiresAt = 0;
+    this.byToken.delete(digest);
+  }
+
+  async playerForToken(raw?: string): Promise<Player | undefined> {
+    if (!raw || raw.length > 200) return undefined;
+    const digest = tokenHash(raw);
+    if (this.pool) {
+      const result = await this.pool.query("SELECT * FROM players WHERE token = $1 AND token_expires_at > now()", [digest]);
+      const row = result.rows[0];
+      if (!row) return undefined;
+      const player: Player = { id: row.id, name: row.name, team: row.team, token: row.token,
+        tokenExpiresAt: new Date(row.token_expires_at).getTime(), createdAt: new Date(row.created_at).getTime(), passwordHash: row.password_hash ?? null };
+      this.indexPlayer(player);
+      return player;
+    }
+    const player = this.byToken.get(digest);
+    if (!player || player.tokenExpiresAt <= Date.now()) { this.byToken.delete(digest); return undefined; }
+    return player;
   }
 
   hasVisited(playerId: string, poiId: string, seasonId: string): boolean {
@@ -320,6 +384,8 @@ export class MemoryStore {
       if (checkin.finishedAt === null && checkin.startedAt < staleCutoff) { this.checkins.delete(id); continue; }
       checkin.pings = checkin.pings.filter((ping) => ping.ts >= pingCutoff);
     }
+    for (const [digest, player] of this.byToken) if (player.tokenExpiresAt <= Date.now()) this.byToken.delete(digest);
+    if (this.pool) await this.pool.query("DELETE FROM checkins WHERE finished_at IS NULL AND started_at < $1", [new Date(staleCutoff).toISOString()]);
     await this.prunePingsInDb();
   }
 
@@ -345,7 +411,7 @@ export class MemoryStore {
     const demoPlayers: Player[] = [];
     for (let i = 0; i < Math.max(12, Math.round(count / 15)); i++) {
       const team = teamIds[i % 3];
-      const player: Player = { id: randomUUID(), name: `${names[i % names.length]} ${i + 1}`, team, token: `demo-${randomUUID()}`, createdAt: now, passwordHash: null };
+      const player: Player = { id: randomUUID(), name: `${names[i % names.length]} ${i + 1}`, team, token: `demo-${randomUUID()}`, tokenExpiresAt: 0, createdAt: now, passwordHash: null };
       this.indexPlayer(player);
       demoPlayers.push(player);
     }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, connection, loadPois } from './api.js'
+import { storageKey } from './mode.js'
 import { DEMO } from './ui.jsx'
 
 const REFRESH_MS = 15000
@@ -103,7 +104,7 @@ export function useGame() {
 // (pak ping na starý vrací CHECKIN_NOT_FOUND). Proto: žádné souběžné starty, pingy jen
 // z posledního běhu (run) a nikdy dva pingy najednou (setTimeout řetěz místo setInterval).
 // Rozběhnutý check-in se pamatuje v localStorage a po reloadu stránky pokračuje.
-const STORE_KEY = 'krajanek-checkin'
+const STORE_KEY = storageKey('checkin')
 const RADIUS_KEY = 'krajanek-radius'
 
 export const checkinRadius = () => Number(localStorage.getItem(RADIUS_KEY)) || 100

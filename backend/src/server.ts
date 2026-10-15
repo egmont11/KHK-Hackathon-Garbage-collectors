@@ -10,7 +10,8 @@ import { AdminStore, generatePassword, hashPassword, passwordProblem, verifyPass
 import { EventManager, type Bonus, type QuickEvent } from "./events.js";
 import { distanceM, validCoordinates } from "./geo.js";
 import { publicSeason, SeasonManager } from "./seasons.js";
-import { MemoryStore, type Player } from "./store.js";
+import { WindowLimiter, csvCell } from "./security.js";
+import { MemoryStore, nameKey, type Player } from "./store.js";
 import type { Checkin, Feature, FeatureCollection, Poi, Stop } from "./types.js";
 
 async function loadPois(): Promise<{ pois: Map<string, Poi>; features: Map<string, Feature> }> {
@@ -34,7 +35,9 @@ async function loadPois(): Promise<{ pois: Map<string, Poi>; features: Map<strin
 }
 
 const { pois, features: poiFeatures } = await loadPois();
-const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL }) : undefined;
+const pool = process.env.DATABASE_URL || process.env.PGHOST
+  ? new Pool(process.env.DATABASE_URL ? { connectionString: process.env.DATABASE_URL } : undefined)
+  : undefined;
 if (pool) {
   const schema = await readFile(new URL("../schema.sql", import.meta.url), "utf8");
   await pool.query(schema);
@@ -58,8 +61,35 @@ if (config.demoSeedVisits > 0) {
 /** Bonus that was active when a check-in started (honoured if the event ends mid check-in). */
 const startBonuses = new Map<string, Bonus>();
 
-const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
-await app.register(cors, { origin: true, allowedHeaders: ["content-type", "authorization"] });
+const app = Fastify({
+  bodyLimit: 16 * 1024,
+  trustProxy: config.trustedProxies.length ? config.trustedProxies : false,
+  logger: { level: process.env.LOG_LEVEL ?? "info", serializers: {
+    req: (request) => ({ method: request.method, url: request.url?.split("?")[0], remoteAddress: request.ip }),
+  } },
+});
+await app.register(cors, { origin: config.corsOrigins.length ? config.corsOrigins : false, allowedHeaders: ["content-type", "authorization"] });
+const limits = new WindowLimiter();
+const pendingRegistrations = new Set<string>();
+function throttle(reply: FastifyReply, key: string, limit: number, windowMs: number) {
+  const wait = limits.take(key, limit, windowMs);
+  if (!wait) return false;
+  reply.header("retry-after", String(wait));
+  fail(reply, 429, "TOO_MANY_ATTEMPTS", "Příliš mnoho požadavků. Zkuste to později.");
+  return true;
+}
+app.addHook("onRequest", async (request, reply) => {
+  if (config.requireHttps && request.url !== "/health" && request.protocol !== "https") {
+    return fail(reply, 426, "HTTPS_REQUIRED", "Použijte zabezpečené připojení HTTPS.");
+  }
+  if (request.url.startsWith("/api/") && throttle(reply, `requests:${request.ip}`, 300, 60_000)) return reply;
+  if (request.url.startsWith("/api/poi") && throttle(reply, `catalog:${request.ip}`, 60, 60_000)) return reply;
+});
+app.addHook("onSend", async (request, reply) => {
+  reply.header("x-content-type-options", "nosniff").header("x-frame-options", "DENY").header("referrer-policy", "no-referrer");
+  if (config.production) reply.header("strict-transport-security", "max-age=31536000");
+  if (request.url.startsWith("/api/")) reply.header("cache-control", "no-store");
+});
 if (pool) app.addHook("onClose", async () => { await pool.end(); });
 
 // Accept POSTs with `content-type: application/json` and an empty body (e.g. /finish from fetch()).
@@ -85,7 +115,7 @@ function fail(reply: FastifyReply, status: number, code: string, message: string
   return reply.code(status).send({ error: { code, message } });
 }
 
-function bearerPlayer(request: FastifyRequest): Player | undefined {
+async function bearerPlayer(request: FastifyRequest): Promise<Player | undefined> {
   const header = request.headers.authorization;
   return store.playerForToken(header?.startsWith("Bearer ") ? header.slice(7).trim() : undefined);
 }
@@ -318,7 +348,6 @@ app.get("/api/categories", async () => {
 app.get<{ Params: { id: string } }>("/api/poi/:id", async (request, reply) => {
   const poi = pois.get(request.params.id);
   if (!poi) return fail(reply, 404, "POI_NOT_FOUND", "Místo nebylo nalezeno.");
-  const lastAt = store.lastVisitedAt(poi.id);
   const bonus = events.bonusFor(poi);
   const point = pointFor(poi.id)!;
   return {
@@ -326,7 +355,7 @@ app.get<{ Params: { id: string } }>("/api/poi/:id", async (request, reply) => {
     lat: point.lat,
     lon: point.lon,
     ...liveState(poi),
-    last_visited_at: lastAt ? new Date(lastAt).toISOString() : null,
+    last_visited_at: null, // Public map does not disclose precise visitor timestamps.
     nearest_bus_stop: parseStop(poi.nearest_bus_stop) ?? parseStop(poi.nearest_bus) ?? (poi.nearest_stop?.type === "bus" ? poi.nearest_stop : null),
     nearest_train_stop: parseStop(poi.nearest_train_stop) ?? parseStop(poi.nearest_train) ?? (poi.nearest_stop?.type === "train" ? poi.nearest_stop : null),
     idos_url: idosUrl(poi),
@@ -336,15 +365,11 @@ app.get<{ Params: { id: string } }>("/api/poi/:id", async (request, reply) => {
 
 // --- Hráčské účty: jméno + heslo (scrypt). Token z odpovědi slouží k automatickému přihlášení. ---
 const PLAYER_MIN_PASSWORD = 6;
-const playerLoginFailures = new Map<string, { count: number; until: number }>();
 const playerDummyHash = hashPassword(randomUUID());
-const playerLockedFor = (client: string) => {
-  const entry = playerLoginFailures.get(client);
-  return entry && entry.until > Date.now() ? Math.ceil((entry.until - Date.now()) / 1000) : 0;
-};
-const publicPlayer = (player: Player) => ({ player_id: player.id, token: player.token, name: player.name, team: player.team });
+const publicPlayer = (player: Player, token: string) => ({ player_id: player.id, token, name: player.name, team: player.team });
 
 app.post<{ Body: { name?: string; team?: string; password?: string } }>("/api/players", async (request, reply) => {
+  if (throttle(reply, `register:${request.ip}`, config.registrationLimit, 3600_000)) return reply;
   const rawName = request.body?.name;
   const name = typeof rawName === "string" ? rawName.trim() : "";
   const team = request.body?.team;
@@ -354,31 +379,39 @@ app.post<{ Body: { name?: string; team?: string; password?: string } }>("/api/pl
     return fail(reply, 400, "INVALID_PASSWORD", `Heslo musí mít aspoň ${PLAYER_MIN_PASSWORD} znaků.`);
   }
   if (typeof team !== "string" || !Object.hasOwn(teams, team)) return fail(reply, 400, "INVALID_TEAM", "Tým musí být hory, reky, nebo lesy.");
-  if (store.playerByName(name)) return fail(reply, 409, "NAME_TAKEN", "Tohle jméno už někdo má. Zvol jiné, nebo se přihlas.");
-  const player = await store.addPlayer(name, team as TeamId, await hashPassword(password));
-  return reply.code(201).send(publicPlayer(player));
+  const key = nameKey(name);
+  if (store.playerByName(name) || pendingRegistrations.has(key)) return fail(reply, 409, "NAME_TAKEN", "Tohle jméno už někdo má. Zvol jiné, nebo se přihlas.");
+  if (store.players.size + pendingRegistrations.size >= config.maxPlayers) return fail(reply, 503, "PLAYER_CAPACITY", "Registrace jsou nyní plné.");
+  pendingRegistrations.add(key);
+  try {
+    const player = await store.addPlayer(name.normalize("NFC"), team as TeamId, await hashPassword(password));
+    return reply.code(201).send(publicPlayer(player, await store.issuePlayerToken(player)));
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") return fail(reply, 409, "NAME_TAKEN", "Toto jméno už existuje.");
+    throw error;
+  } finally { pendingRegistrations.delete(key); }
 });
 
 app.post<{ Body: { name?: string; password?: string } }>("/api/players/login", async (request, reply) => {
-  const locked = playerLockedFor(request.ip);
-  if (locked) return reply.code(429).header("retry-after", String(locked)).send({ error: { code: "TOO_MANY_ATTEMPTS", message: `Příliš mnoho pokusů. Zkus to za ${locked} s.` } });
   const name = typeof request.body?.name === "string" ? request.body.name : "";
   const password = typeof request.body?.password === "string" ? request.body.password : "";
-  const player = name ? store.playerByName(name) : undefined;
-  // Vždy spočítat scrypt, ať neznámé jméno trvá stejně dlouho jako špatné heslo.
-  const ok = player?.passwordHash ? await verifyPassword(password, player.passwordHash) : (await verifyPassword(password, await playerDummyHash), false);
-  if (!player || !ok) {
-    const entry = playerLoginFailures.get(request.ip);
-    const count = (entry && entry.until > Date.now() - 60_000 ? entry.count : 0) + 1;
-    playerLoginFailures.set(request.ip, { count, until: count >= 5 ? Date.now() + 60_000 : Date.now() });
-    return fail(reply, 401, "INVALID_CREDENTIALS", "Špatné jméno nebo heslo.");
-  }
-  playerLoginFailures.delete(request.ip);
-  return publicPlayer(player);
+  if (!name || name.length > 40 || !password || password.length > 200) return fail(reply, 400, "INVALID_LOGIN", "Zadejte jméno a heslo.");
+  if (throttle(reply, `player-login:${request.ip}:${nameKey(name)}`, 5, 60_000)) return reply;
+  const player = await store.findPlayerByName(name);
+  const ok = await verifyPassword(password, player?.passwordHash ?? await playerDummyHash);
+  if (!player || !ok) return fail(reply, 401, "INVALID_CREDENTIALS", "Špatné jméno nebo heslo.");
+  return publicPlayer(player, await store.issuePlayerToken(player));
+});
+
+app.post("/api/players/logout", async (request, reply) => {
+  const player = await bearerPlayer(request);
+  if (!player) return fail(reply, 401, "UNAUTHORIZED", "Chybí nebo je neplatný hráčský token.");
+  await store.revokePlayerToken(request.headers.authorization!.slice(7).trim());
+  return { ok: true };
 });
 
 app.get("/api/players/me", async (request, reply) => {
-  const player = bearerPlayer(request);
+  const player = await bearerPlayer(request);
   if (!player) return fail(reply, 401, "UNAUTHORIZED", "Chybí nebo je neplatný hráčský token.");
   const season = await syncSeason();
   const visited = store.visitedBy(player.id, season.id);
@@ -404,8 +437,10 @@ app.get("/api/players/me", async (request, reply) => {
 app.get("/api/badges", async () => badgeDefinitions.map(({ id, name, description, target }) => ({ id, name, description, target })));
 
 app.post<{ Body: { poi_id?: string; lat?: number; lon?: number; accuracy_m?: number } }>("/api/checkins/start", async (request, reply) => {
-  const player = bearerPlayer(request);
+  const player = await bearerPlayer(request);
   if (!player) return fail(reply, 401, "UNAUTHORIZED", "Chybí nebo je neplatný hráčský token.");
+  if (throttle(reply, `checkin-start:${player.id}`, 10, 60_000)) return reply;
+  if (request.headers["x-krajanek-demo"] === "1" && !config.demoMode) return fail(reply, 403, "DEMO_DISABLED", "Demo check-iny nepatří do ostré hry.");
   const { poi_id: poiId, accuracy_m: accuracy } = request.body ?? {};
   const position = request.body && { lat: request.body.lat, lon: request.body.lon };
   if (typeof poiId !== "string" || !position || !validCoordinates(position) || typeof accuracy !== "number" || !Number.isFinite(accuracy) || accuracy < 0) {
@@ -441,7 +476,7 @@ app.post<{ Body: { poi_id?: string; lat?: number; lon?: number; accuracy_m?: num
 });
 
 app.post<{ Params: { id: string }; Body: { lat?: number; lon?: number; accuracy_m?: number } }>("/api/checkins/:id/ping", async (request, reply) => {
-  const player = bearerPlayer(request);
+  const player = await bearerPlayer(request);
   if (!player) return fail(reply, 401, "UNAUTHORIZED", "Chybí nebo je neplatný hráčský token.");
   const checkin = store.checkins.get(request.params.id);
   if (!checkin || checkin.playerId !== player.id) return fail(reply, 404, "CHECKIN_NOT_FOUND", "Check-in nebyl nalezen.");
@@ -483,7 +518,7 @@ app.post<{ Params: { id: string }; Body: { lat?: number; lon?: number; accuracy_
 });
 
 app.post<{ Params: { id: string } }>("/api/checkins/:id/finish", async (request, reply) => {
-  const player = bearerPlayer(request);
+  const player = await bearerPlayer(request);
   if (!player) return fail(reply, 401, "UNAUTHORIZED", "Chybí nebo je neplatný hráčský token.");
   const checkin = store.checkins.get(request.params.id);
   if (!checkin || checkin.playerId !== player.id) return fail(reply, 404, "CHECKIN_NOT_FOUND", "Check-in nebyl nalezen.");
@@ -535,7 +570,7 @@ app.get<{ Querystring: { limit?: string } }>("/api/players/top", async (request)
 
 app.get("/api/seasons/current", async () => publicSeason(await syncSeason()));
 app.get("/api/seasons/history", async () => { await syncSeason(); return seasons.history(); });
-app.get("/api/events/active", async (request) => activeEvents(bearerPlayer(request), (await syncSeason()).id));
+app.get("/api/events/active", async (request) => activeEvents(await bearerPlayer(request), (await syncSeason()).id));
 
 type StatsQuery = { from?: string; to?: string; season?: string; top?: string };
 
@@ -638,7 +673,7 @@ function adminToken(request: FastifyRequest): string | undefined {
 /** preHandler: valid admin session; unless `allowPasswordChange`, the forced password change must be done. */
 function requireAdmin(allowPasswordChange = false) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const admin = admins.adminForToken(adminToken(request));
+    const admin = await admins.adminForToken(adminToken(request));
     if (!admin) return fail(reply, 401, "ADMIN_AUTH_REQUIRED", "Přihlaste se jako administrátor.");
     if (admin.mustChangePassword && !allowPasswordChange) {
       return fail(reply, 403, "PASSWORD_CHANGE_REQUIRED", "Před pokračováním si změňte heslo.");
@@ -656,8 +691,8 @@ app.post<{ Body: { username?: string; password?: string } }>("/api/admin/login",
   if (typeof username !== "string" || typeof password !== "string" || !username || !password) {
     return fail(reply, 400, "INVALID_LOGIN", "Zadejte uživatelské jméno a heslo.");
   }
-  const locked = admins.lockedFor(request.ip);
-  if (locked) return reply.code(429).header("retry-after", String(locked)).send({ error: { code: "TOO_MANY_ATTEMPTS", message: `Příliš mnoho pokusů. Zkuste to za ${locked} s.` } });
+  if (username.length > 40 || password.length > 200) return fail(reply, 400, "INVALID_LOGIN", "Neplatná délka údajů.");
+  if (throttle(reply, `admin-login:${request.ip}:${username.trim().toLowerCase()}`, 5, 60_000)) return reply;
   const session = await admins.login(username, password, request.ip);
   if (!session) return fail(reply, 401, "INVALID_CREDENTIALS", "Neplatné jméno nebo heslo.");
   return {
@@ -683,16 +718,16 @@ app.post<{ Body: { current_password?: string; new_password?: string } }>("/api/a
   if (problem) return fail(reply, 400, "WEAK_PASSWORD", problem);
   if (next === current) return fail(reply, 400, "SAME_PASSWORD", "Nové heslo musí být jiné než současné.");
   await admins.setPassword(admin, next as string, false);
-  admins.revokeOtherSessions(admin.id, adminToken(request)!);
+  admins.revokeOtherSessions(admin.id, adminToken(request)!, admin.passwordHash);
   return publicAdmin(admin);
 });
 
-app.get("/api/admin/admins", { preHandler: requireAdmin() }, async () => admins.list().map(publicAdmin));
+app.get("/api/admin/admins", { preHandler: requireAdmin() }, async () => (await admins.list()).map(publicAdmin));
 
 app.post<{ Body: { username?: string; password?: string } }>("/api/admin/admins", { preHandler: requireAdmin() }, async (request, reply) => {
   const username = typeof request.body?.username === "string" ? request.body.username.trim() : "";
   if (!/^[\p{L}0-9._-]{3,40}$/u.test(username)) return fail(reply, 400, "INVALID_USERNAME", "Jméno musí mít 3–40 znaků (písmena, číslice, . _ -).");
-  if (admins.byUsername(username)) return fail(reply, 409, "USERNAME_TAKEN", "Takový administrátor už existuje.");
+  if (await admins.byUsername(username)) return fail(reply, 409, "USERNAME_TAKEN", "Takový administrátor už existuje.");
   // Without a password we generate one; either way the new admin must change it on first login.
   const password = request.body?.password ?? generatePassword();
   const problem = passwordProblem(password);
@@ -702,7 +737,7 @@ app.post<{ Body: { username?: string; password?: string } }>("/api/admin/admins"
 });
 
 app.delete<{ Params: { id: string } }>("/api/admin/admins/:id", { preHandler: requireAdmin() }, async (request, reply) => {
-  const target = admins.get(request.params.id);
+  const target = await admins.get(request.params.id);
   if (!target) return fail(reply, 404, "ADMIN_NOT_FOUND", "Administrátor neexistuje.");
   if (target.id === currentAdmin(request).id) return fail(reply, 409, "CANNOT_DELETE_SELF", "Sami sebe smazat nemůžete.");
   await admins.remove(target.id);
@@ -778,10 +813,6 @@ app.get("/api/admin/players", { preHandler: requireAdmin() }, async () => {
 /** Anonymous visit log for the region's own analysis (no player ids, no routes). */
 app.get<{ Querystring: StatsQuery }>("/api/admin/export/visits.csv", { preHandler: requireAdmin() }, async (request, reply) => {
   const { visits } = visitsInRange(request.query, await syncSeason());
-  const cell = (value: unknown) => {
-    const text = value === null || value === undefined ? "" : String(value);
-    return /[";\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  };
   const rows = [["cas", "sezona", "poi_id", "nazev", "kategorie", "skupina", "obec", "orp_kod", "orp", "tym", "body", "lat", "lon"]];
   for (const visit of visits) {
     const poi = pois.get(visit.poiId);
@@ -794,7 +825,7 @@ app.get<{ Querystring: StatsQuery }>("/api/admin/export/visits.csv", { preHandle
   }
   reply.type("text/csv; charset=utf-8").header("content-disposition", `attachment; filename="krajanek-navstevy-${new Date().toISOString().slice(0, 10)}.csv"`);
   // BOM + semicolons so Czech Excel opens it correctly.
-  return "\uFEFF" + rows.map((row) => row.map(cell).join(";")).join("\r\n") + "\r\n";
+  return "\uFEFF" + rows.map((row) => row.map(csvCell).join(";")).join("\r\n") + "\r\n";
 });
 
 app.post("/api/admin/seasons/end", { preHandler: requireAdmin() }, async (request) => {
@@ -807,8 +838,13 @@ app.post("/api/admin/seasons/end", { preHandler: requireAdmin() }, async (reques
 
 const dashboardFile = new URL("../public/dashboard.html", import.meta.url);
 app.get("/dashboard", async (_request, reply) => {
-  reply.type("text/html; charset=utf-8").header("cache-control", "no-cache");
-  return readFile(dashboardFile, "utf8");
+  const html = await readFile(dashboardFile, "utf8");
+  const inlineScript = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? "";
+  const { createHash } = await import("node:crypto");
+  const hash = createHash("sha256").update(inlineScript).digest("base64");
+  reply.type("text/html; charset=utf-8").header("cache-control", "no-store")
+    .header("content-security-policy", `default-src 'none'; script-src 'self' 'sha256-${hash}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`);
+  return html;
 });
 app.get("/", async (_request, reply) => reply.redirect("/dashboard"));
 
