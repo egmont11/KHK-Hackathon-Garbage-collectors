@@ -68,7 +68,7 @@ export class AdminStore {
     log([
       banner,
       `Admin účet ${existing ? "resetován" : "vytvořen"}: uživatel "${config.adminUsername}"`,
-      config.adminInitialPassword ? "Heslo: z proměnné ADMIN_PASSWORD" : `Heslo: ${password}`,
+      process.env.ADMIN_PASSWORD ? "Heslo: z proměnné ADMIN_PASSWORD" : `Heslo: ${password}${config.adminInitialPassword ? " (demo režim)" : ""}`,
       config.adminMustChange ? "Po prvním přihlášení je nutné heslo změnit." : "",
       `Dashboard: http://localhost:${config.port}/dashboard`,
       banner,

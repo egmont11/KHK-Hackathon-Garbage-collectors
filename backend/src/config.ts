@@ -3,6 +3,9 @@ const num = (value: string | undefined, fallback: number) => {
   return value !== undefined && value !== "" && Number.isFinite(parsed) ? parsed : fallback;
 };
 
+// `npm run demo` (--demo): výchozí hodnoty pro prezentaci – check-in 10 s, admin/admin bez vynucené změny hesla.
+// Proměnné prostředí mají vždy přednost.
+const demoMode = process.argv.includes("--demo");
 const demoSeasonSeconds = process.env.DEMO_SEASON_SECONDS ? num(process.env.DEMO_SEASON_SECONDS, 0) || null : null;
 
 export const config = {
@@ -11,7 +14,7 @@ export const config = {
   poiFile: process.env.POI_FILE ?? "../data/poi.geojson",
   checkinRadiusM: num(process.env.CHECKIN_RADIUS_M, 100),
   maxAccuracyM: num(process.env.MAX_ACCURACY_M, 50),
-  requiredCheckinSeconds: num(process.env.CHECKIN_SECONDS, 60),
+  requiredCheckinSeconds: num(process.env.CHECKIN_SECONDS, demoMode ? 10 : 60),
   maxPingGapSeconds: 15,
   maxSpeedKmh: 30,
   pingRetentionHours: 24,
@@ -33,14 +36,14 @@ export const config = {
   dailyMultiplier: num(process.env.DAILY_MULTIPLIER, 1.4),
   dailyPeriodSeconds: num(process.env.DAILY_EVENT_SECONDS, demoSeasonSeconds ? Math.max(30, Math.round(demoSeasonSeconds / 6)) : 86400),
   /** Generate synthetic visits for the region dashboard (memory mode only). */
-  demoSeedVisits: num(process.env.DEMO_SEED, process.argv.includes("--demo") ? 800 : 0),
+  demoSeedVisits: num(process.env.DEMO_SEED, demoMode ? 800 : 0),
   /** Built-in administrator for the region dashboard / statistics. */
   adminUsername: process.env.ADMIN_USERNAME ?? "admin",
-  adminInitialPassword: process.env.ADMIN_PASSWORD || null,
+  adminInitialPassword: process.env.ADMIN_PASSWORD || (demoMode ? "admin" : null),
   /** ADMIN_RESET=1 resets the built-in admin's password on startup (lost password). */
   adminReset: process.env.ADMIN_RESET === "1",
   /** ADMIN_MUST_CHANGE=0 skips the forced password change (handy for repeated in-memory demos). */
-  adminMustChange: process.env.ADMIN_MUST_CHANGE !== "0",
+  adminMustChange: process.env.ADMIN_MUST_CHANGE ? process.env.ADMIN_MUST_CHANGE !== "0" : !demoMode,
   adminSessionHours: num(process.env.ADMIN_SESSION_HOURS, 12),
   adminMinPasswordLength: 10,
 } as const;
