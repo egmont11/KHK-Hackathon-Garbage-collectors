@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turisťák · Dashboard kraje</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/vendor/leaflet.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23F2C230'/%3E%3Crect x='6' y='9' width='20' height='14' fill='%23fff'/%3E%3Crect x='6' y='13.5' width='20' height='5' fill='%232E8B3E'/%3E%3C/svg%3E">
+<style>
+:root {
+  --paper: #F7F3EA; --card: #FFFDF8; --ink: #2B2A26; --ink-2: #5E5A50; --muted: #8C877B;
+  --line: #E6DFCF; --grid: #EEE8DB; --sign: #F2C230; --sign-ink: #3A2E05;
+  --hory: #D7263D; --reky: #1E63B5; --lesy: #2E8B3E;
+  --seq: #1E63B5; --seq-soft: #DCE7F5; --bonus: #B5651D;
+  --radius: 16px; --shadow: 0 1px 0 rgba(60,45,10,.06), 0 6px 18px -10px rgba(60,45,10,.25);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Nunito", system-ui, sans-serif; }
+body { background-image: radial-gradient(rgba(140,120,70,.06) 1px, transparent 1px); background-size: 14px 14px; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 18px 16px 40px; }
+
+/* Header – a signpost board */
+header.sign { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: center; justify-content: space-between;
+  background: var(--sign); color: var(--sign-ink); border-radius: 14px; padding: 14px 20px; position: relative;
+  box-shadow: inset 0 -4px 0 rgba(0,0,0,.08), var(--shadow); }
+header.sign::after { content: ""; position: absolute; right: -14px; top: 50%; transform: translateY(-50%);
+  border: 22px solid transparent; border-left: 16px solid var(--sign); border-right: 0; filter: drop-shadow(1px 0 0 rgba(0,0,0,.04)); }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand svg { flex: none; }
+.brand h1 { margin: 0; font-size: 22px; font-weight: 900; letter-spacing: .2px; }
+.brand p { margin: 0; font-size: 13px; font-weight: 700; opacity: .75; }
+.season { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 14px; }
+.pill { background: rgba(255,255,255,.55); border-radius: 999px; padding: 6px 12px; white-space: nowrap; }
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; }
+.live i { width: 8px; height: 8px; border-radius: 50%; background: #2E8B3E; box-shadow: 0 0 0 0 rgba(46,139,62,.5); animation: pulse 2s infinite; }
+.live.off i { background: #B23; animation: none; }
+@keyframes pulse { 70% { box-shadow: 0 0 0 8px rgba(46,139,62,0); } 100% { box-shadow: 0 0 0 0 rgba(46,139,62,0); } }
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0 14px; }
+.filters span { font-size: 13px; color: var(--ink-2); font-weight: 700; margin-right: 4px; }
+.seg { display: inline-flex; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+.seg button { font: inherit; font-size: 13px; font-weight: 800; color: var(--ink-2); background: none; border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.seg button:focus-visible { outline: 2px solid var(--reky); outline-offset: 2px; }
+
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; min-width: 0; }
+.kpi .label { font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.kpi .value { font-size: 34px; font-weight: 900; line-height: 1.1; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.kpi .sub { font-size: 12px; color: var(--muted); font-weight: 700; margin-top: 2px; }
+
+.grid-main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.stack { display: grid; gap: 12px; align-content: start; }
+h2 { font-size: 15px; font-weight: 900; margin: 0 0 2px; }
+.hint { font-size: 12px; color: var(--muted); font-weight: 700; margin: 0 0 12px; }
+
+#map { height: 470px; border-radius: 12px; overflow: hidden; background: #EFE9DA; }
+.leaflet-tile-pane { filter: sepia(.35) saturate(.75) brightness(1.04) contrast(.92); }
+.map-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.legend-heat { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); font-weight: 700; }
+.legend-heat b { display: block; width: 110px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #DCE7F5, #7FA6D9, #1E63B5, #F2C230, #D7263D); }
+
+/* Teams */
+.team { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; }
+.team + .team { border-top: 1px dashed var(--line); }
+.mark { width: 28px; height: 22px; border-radius: 4px; border: 1px solid #D8D2C4; background: linear-gradient(#fff 0 33%, var(--c) 33% 67%, #fff 67%); }
+.team .name { font-weight: 900; font-size: 15px; }
+.team .members { font-size: 12px; color: var(--muted); font-weight: 700; }
+.team .score { font-weight: 900; font-size: 20px; font-variant-numeric: tabular-nums; text-align: right; }
+.team .bar { grid-column: 2 / 4; height: 8px; background: var(--grid); border-radius: 4px; overflow: hidden; }
+.team .bar i { display: block; height: 100%; background: var(--c); border-radius: 4px; transition: width .6s ease; }
+.crown { font-size: 12px; font-weight: 900; color: var(--sign-ink); background: var(--sign); border-radius: 999px; padding: 1px 8px; margin-left: 6px; }
+.history { margin-top: 10px; font-size: 12px; color: var(--ink-2); font-weight: 700; }
+.history li { margin: 2px 0; }
+
+/* Events */
+.event { display: flex; gap: 10px; align-items: center; padding: 8px 0; }
+.event + .event { border-top: 1px dashed var(--line); }
+.tl-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; font-weight: 700; color: var(--ink-2); margin: 4px 0 8px; }
+.tl-legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -2px; }
+.tl-legend .sw.bar { background: #1E63B5; }
+.tl-legend .sw.bonus { background: #FBE7A6; border: 1px solid #E8C65A; }
+.tl-summary { margin: 8px 0 0; font-size: 13px; font-weight: 700; color: var(--ink-2); }
+select.tool { appearance: auto; max-width: 260px; }
+.ev-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 800; color: var(--ink-2); margin: 10px 0 2px; }
+.ev-head:first-child { margin-top: 0; }
+.ev-head span:last-child { color: var(--muted); }
+.event.daily .x { background: #E6F0E8; border-color: #2E8B3E; color: #1F6B2E; font-size: 13px; }
+.event .x { flex: none; width: 42px; height: 42px; border-radius: 12px; background: #FFF3D1; border: 2px solid var(--sign); display: grid; place-items: center; font-weight: 900; color: var(--bonus); }
+.event .t { font-weight: 800; font-size: 14px; line-height: 1.2; }
+.event .s { font-size: 12px; color: var(--muted); font-weight: 700; }
+.empty { color: var(--muted); font-size: 13px; font-weight: 700; padding: 10px 0; }
+
+/* Bars */
+.hbars { display: grid; gap: 6px; }
+.hbar { display: grid; grid-template-columns: minmax(90px, 38%) 1fr 44px; gap: 10px; align-items: center; font-size: 13px; font-weight: 700; cursor: default; }
+.hbar .k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.hbar .track { height: 14px; position: relative; }
+.hbar .track i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--seq); border-radius: 0 4px 4px 0; min-width: 2px; transition: width .5s ease; }
+.hbar:hover .track i { filter: brightness(1.15); }
+.hbar .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+
+svg.chart { width: 100%; height: 200px; display: block; overflow: visible; }
+svg.chart text { font-family: inherit; font-size: 11px; fill: var(--muted); font-weight: 700; }
+svg.chart .gridline { stroke: var(--grid); stroke-width: 1; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 800; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+td { padding: 7px 8px; border-bottom: 1px dashed var(--line); font-weight: 700; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c, #ccc); margin-right: 6px; vertical-align: -1px; }
+.table-scroll { overflow-x: auto; }
+
+#tip { position: fixed; pointer-events: none; z-index: 1000; background: var(--ink); color: #fff; font-size: 12px; font-weight: 700;
+  padding: 6px 9px; border-radius: 8px; opacity: 0; transform: translate(-50%, calc(-100% - 10px)); transition: opacity .1s; white-space: nowrap; }
+footer { margin-top: 18px; font-size: 12px; color: var(--muted); font-weight: 700; text-align: center; }
+footer a { color: inherit; }
+/* Admin toolbar + auth screens */
+.filters .spacer { flex: 1; }
+.tool { font: inherit; font-size: 13px; font-weight: 800; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; cursor: pointer; }
+.tool:hover { border-color: var(--muted); }
+.tool.danger { color: #8A1C2B; }
+.tool.danger.armed { background: #8A1C2B; color: #fff; border-color: #8A1C2B; }
+.tool:focus-visible, .auth input:focus-visible, .auth button:focus-visible { outline: 2px solid var(--reky); outline-offset: 2px; }
+.who { font-size: 13px; font-weight: 800; color: var(--ink-2); }
+.auth { position: fixed; inset: 0; z-index: 2000; display: none; place-items: center; padding: 16px;
+  background: var(--paper); background-image: radial-gradient(rgba(140,120,70,.08) 1px, transparent 1px); background-size: 14px 14px; }
+.auth.show { display: grid; }
+.auth form { width: min(380px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 0 22px 22px; overflow: hidden; }
+.auth .board { margin: 0 -22px 18px; background: var(--sign); color: var(--sign-ink); padding: 16px 22px; display: flex; gap: 12px; align-items: center; box-shadow: inset 0 -4px 0 rgba(0,0,0,.08); }
+.auth .board h2 { font-size: 18px; margin: 0; }
+.auth .board p { margin: 0; font-size: 12px; font-weight: 700; opacity: .8; }
+.auth label { display: block; font-size: 13px; font-weight: 800; color: var(--ink-2); margin: 12px 0 4px; }
+.auth input { width: 100%; font: inherit; font-size: 15px; font-weight: 700; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); }
+.auth .primary { width: 100%; margin-top: 18px; font: inherit; font-size: 15px; font-weight: 900; padding: 11px; border: 0; border-radius: 12px; background: var(--ink); color: #fff; cursor: pointer; }
+.auth .primary:disabled { opacity: .6; cursor: wait; }
+.auth .msg { margin-top: 12px; font-size: 13px; font-weight: 700; color: #8A1C2B; min-height: 1em; }
+.auth .note { font-size: 12px; color: var(--muted); font-weight: 700; margin: 8px 0 0; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: #fff; font-weight: 800; font-size: 13px; padding: 10px 16px; border-radius: 12px; z-index: 1500; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.show { opacity: 1; }
+.error { background: #FCE8EA; color: #8A1C2B; border: 1px solid #F1C0C6; border-radius: 12px; padding: 10px 14px; font-weight: 700; margin-top: 12px; display: none; }
+
+@media (max-width: 980px) {
+  .grid-main, .grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #map { height: 380px; }
+  header.sign::after { display: none; }
+}
+@media (max-width: 480px) { .kpi .value { font-size: 26px; } .hbar { grid-template-columns: 96px 1fr 36px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="sign">
+    <div class="brand">
+      <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+        <rect x="18" y="6" width="4" height="32" rx="2" fill="#6B4E16"/>
+        <path d="M6 9h24l5 5-5 5H6z" fill="#fff" stroke="#3A2E05" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M34 22H10l-5 5 5 5h24z" fill="#fff" stroke="#3A2E05" stroke-width="2" stroke-linejoin="round"/>
+        <rect x="11" y="12" width="14" height="4" rx="1" fill="#2E8B3E"/><rect x="15" y="25" width="14" height="4" rx="1" fill="#D7263D"/>
+      </svg>
+      <div><h1>Turisťák · dashboard kraje</h1><p>Kam lidé v Královéhradeckém kraji chodí – anonymně, po místech a kategoriích</p></div>
+    </div>
+    <div class="season">
+      <span class="pill" id="seasonName">Sezóna –</span>
+      <span class="pill" id="countdown" title="Do konce sezóny">–</span>
+      <span class="live" id="live"><i></i><span>živě</span></span>
+    </div>
+  </header>
+
+  <div class="filters" role="group" aria-label="Časové období">
+    <span>Období:</span>
+    <div class="seg" id="range">
+      <button data-range="season" aria-pressed="true">Tato sezóna</button>
+      <button data-range="7" aria-pressed="false">7 dní</button>
+      <button data-range="30" aria-pressed="false">30 dní</button>
+      <button data-range="all" aria-pressed="false">Vše</button>
+    </div>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="tool" id="exportBtn" title="Anonymní záznam návštěv ve zvoleném období">Export CSV</button>
+    <button class="tool danger" id="endSeasonBtn">Ukončit sezónu</button>
+    <button class="tool" id="logoutBtn">Odhlásit</button>
+  </div>
+
+  <div class="error" id="error"></div>
+
+  <section class="kpis">
+    <div class="card kpi"><div class="label">Check-iny</div><div class="value" id="kVisits">–</div><div class="sub" id="kVisitsSub">&nbsp;</div></div>
+    <div class="card kpi"><div class="label">Navštívená místa</div><div class="value" id="kPois">–</div><div class="sub" id="kPoisSub">&nbsp;</div></div>
+    <div class="card kpi"><div class="label">Méně známá místa</div><div class="value" id="kGems">–</div><div class="sub">podíl návštěv u míst za 30+ bodů</div></div>
+    <div class="card kpi"><div class="label">Hráči</div><div class="value" id="kPlayers">–</div><div class="sub">ve třech týmech</div></div>
+  </section>
+
+  <section class="grid-main">
+    <div class="card">
+      <div class="map-head">
+        <div><h2 id="mapTitle">Heatmapa návštěv</h2><p class="hint" id="mapHint">Hustota check-inů; kroužky = nejnavštěvovanější místa, ★ = týdenní bonusové místo</p></div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div class="legend-heat" id="legendHeat">méně <b></b> více</div>
+          <div class="legend-heat" id="legendTeams" hidden><span class="dot" style="--c:#D7263D"></span>Hory <span class="dot" style="--c:#1E63B5"></span>Řeky <span class="dot" style="--c:#2E8B3E"></span>Lesy</div>
+          <div class="seg" id="mapMode" role="group" aria-label="Vrstva mapy">
+            <button data-mode="heat" aria-pressed="true">Návštěvy</button>
+            <button data-mode="teams" aria-pressed="false">Území týmů</button>
+          </div>
+        </div>
+      </div>
+      <div id="map" role="img" aria-label="Mapa kraje s heatmapou návštěv"></div>
+    </div>
+    <div class="stack">
+      <div class="card">
+        <h2>Žebříček týmů</h2><p class="hint">Body v aktuální sezóně</p>
+        <div id="teams"></div>
+        <ul class="history" id="history"></ul>
+      </div>
+      <div class="card">
+        <h2>Bonusy</h2><p class="hint">Násobky bodů, stejné pro všechny hráče</p>
+        <div id="events"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid-2">
+    <div class="card"><h2>Check-iny po dnech</h2><p class="hint">Počet návštěv za den</p><svg class="chart" id="byDay" role="img" aria-label="Návštěvy po dnech"></svg></div>
+    <div class="card"><h2>Kdy lidé chodí</h2><p class="hint">Návštěvy podle hodiny dne (místní čas)</p><svg class="chart" id="byHour" role="img" aria-label="Návštěvy podle hodiny dne"></svg></div>
+  </section>
+
+  <section class="grid-2">
+    <div class="card"><h2>Kategorie míst</h2><p class="hint">Top kategorie podle počtu návštěv</p><div class="hbars" id="byCategory"></div></div>
+    <div class="card"><h2>Správní obvody (ORP)</h2><p class="hint">Návštěvy podle ORP</p><div class="hbars" id="byOrp"></div></div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="map-head">
+      <div><h2>Vývoj v čase</h2><p class="hint" id="tlHint">Check-iny po dnech pro vybranou kategorii nebo ORP</p></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div class="seg" id="tlDim" role="group" aria-label="Dimenze">
+          <button data-dim="category" aria-pressed="true">Kategorie</button>
+          <button data-dim="orp" aria-pressed="false">ORP</button>
+        </div>
+        <select id="tlKey" class="tool" aria-label="Vyberte kategorii nebo ORP"></select>
+      </div>
+    </div>
+    <div class="tl-legend" id="tlLegend"><span><i class="sw bar"></i>check-iny za den</span><span><i class="sw bonus"></i>den s denním bonusem (×1,4)</span></div>
+    <svg class="chart" id="timeline" role="img" aria-label="Vývoj check-inů v čase"></svg>
+    <p class="tl-summary" id="tlSummary"></p>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <h2>Nejnavštěvovanější místa</h2><p class="hint">Top 15 v zvoleném období</p>
+    <div class="table-scroll"><table>
+      <thead><tr><th>#</th><th>Místo</th><th>Kategorie</th><th>Obec</th><th class="num">Body</th><th class="num">Návštěvy</th><th>Vlastník</th></tr></thead>
+      <tbody id="topPois"></tbody>
+    </table></div>
+  </section>
+
+  <footer>Data POI a zastávek: <a href="https://www.datakhk.cz" target="_blank" rel="noopener">datakhk.cz</a> · Mapa © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · Ukládáme jen anonymní check-iny (místo, čas, tým), žádné trasy.</footer>
+</div>
+<div id="tip" role="tooltip"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<div class="auth" id="loginScreen">
+  <form id="loginForm" autocomplete="on">
+    <div class="board"><svg width="30" height="30" viewBox="0 0 40 40" aria-hidden="true"><rect x="18" y="6" width="4" height="32" rx="2" fill="#6B4E16"/><path d="M6 9h24l5 5-5 5H6z" fill="#fff" stroke="#3A2E05" stroke-width="2" stroke-linejoin="round"/><path d="M34 22H10l-5 5 5 5h24z" fill="#fff" stroke="#3A2E05" stroke-width="2" stroke-linejoin="round"/></svg>
+      <div><h2>Dashboard kraje</h2><p>Přihlášení pro administrátory</p></div></div>
+    <label for="loginUser">Uživatelské jméno</label>
+    <input id="loginUser" name="username" autocomplete="username" required value="admin">
+    <label for="loginPass">Heslo</label>
+    <input id="loginPass" name="password" type="password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Přihlásit</button>
+    <div class="msg" id="loginMsg" role="alert"></div>
+    <p class="note">Výchozí heslo vypíše server do konzole při prvním spuštění.</p>
+  </form>
+</div>
+
+<div class="auth" id="changeScreen">
+  <form id="changeForm" autocomplete="off">
+    <div class="board"><div><h2>Nastavte si nové heslo</h2><p id="changeWho">Výchozí heslo je potřeba změnit</p></div></div>
+    <input type="text" name="username" autocomplete="username" hidden id="changeUser">
+    <label for="curPass">Současné heslo</label>
+    <input id="curPass" type="password" autocomplete="current-password" required>
+    <label for="newPass">Nové heslo</label>
+    <input id="newPass" type="password" autocomplete="new-password" required minlength="10">
+    <label for="newPass2">Nové heslo znovu</label>
+    <input id="newPass2" type="password" autocomplete="new-password" required minlength="10">
+    <p class="note">Aspoň 10 znaků, písmena i číslice.</p>
+    <button class="primary" type="submit">Uložit a pokračovat</button>
+    <div class="msg" id="changeMsg" role="alert"></div>
+  </form>
+</div>
+
+<script src="/vendor/leaflet.js"></script>
+<script src="/vendor/leaflet-heat.js"></script>
+<script>
+const API = new URLSearchParams(location.search).get("api") || "";
+const TEAM = { hory: "#D7263D", reky: "#1E63B5", lesy: "#2E8B3E" };
+const fmt = new Intl.NumberFormat("cs-CZ");
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let range = "season", season = null, data = null;
+try { range = localStorage.getItem("dashRange") || "season"; } catch {}
+
+/* Tooltip */
+const tip = $("tip");
+function showTip(e, html) { tip.innerHTML = html; tip.style.left = e.clientX + "px"; tip.style.top = e.clientY + "px"; tip.style.opacity = 1; }
+function hideTip() { tip.style.opacity = 0; }
+document.addEventListener("mousemove", (e) => { const t = e.target.closest("[data-tip]"); t ? showTip(e, t.dataset.tip) : hideTip(); });
+
+/* Map (optional – the rest of the dashboard works without Leaflet) */
+const hasMap = typeof window.L !== "undefined";
+const map = hasMap && L.map("map", { zoomControl: true, scrollWheelZoom: false, attributionControl: false }).setView([50.38, 15.85], 9);
+if (hasMap) L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, subdomains: "abc" }).addTo(map);
+const heat = hasMap && L.heatLayer([], { radius: 22, blur: 18, maxZoom: 12, minOpacity: .25,
+  gradient: { .2: "#DCE7F5", .4: "#7FA6D9", .6: "#1E63B5", .8: "#F2C230", 1: "#D7263D" } }).addTo(map);
+const markers = hasMap && L.layerGroup().addTo(map);
+if (hasMap) map.on("click", () => map.scrollWheelZoom.enable());
+else document.getElementById("map").innerHTML = '<div class="empty" style="padding:20px">Mapu se nepodařilo načíst.</div>';
+
+function query() {
+  const p = new URLSearchParams();
+  if (range === "season") p.set("season", "current");
+  else if (range !== "all") p.set("from", new Date(Date.now() - Number(range) * 86400000).toISOString());
+  return p.toString();
+}
+
+/* Admin session */
+let token = null, me = null;
+try { token = sessionStorage.getItem("adminToken"); } catch {}
+function setToken(t) { token = t; try { t ? sessionStorage.setItem("adminToken", t) : sessionStorage.removeItem("adminToken"); } catch {} }
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, { ...opts, headers: { ...(opts.body ? { "content-type": "application/json" } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) } });
+  if (res.status === 401 && !path.endsWith("/login")) { setToken(null); showScreen("login"); throw Object.assign(new Error("Nejste přihlášeni."), { silent: true }); }
+  if (res.status === 403) {
+    const body = await res.clone().json().catch(() => ({}));
+    if (body.error?.code === "PASSWORD_CHANGE_REQUIRED") { showScreen("change"); throw Object.assign(new Error(body.error.message), { silent: true }); }
+  }
+  return res;
+}
+async function apiJson(path, opts) {
+  const res = await api(path, opts);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error?.message || res.statusText);
+  return body;
+}
+function showScreen(which) {
+  $("loginScreen").classList.toggle("show", which === "login");
+  $("changeScreen").classList.toggle("show", which === "change");
+  if (which === "login") setTimeout(() => ($("loginPass").value ? $("loginUser") : $("loginPass")).focus(), 0);
+  if (which === "change") { $("changeWho").textContent = me ? `Účet ${me.username}: výchozí heslo je potřeba změnit` : "Výchozí heslo je potřeba změnit"; $("changeUser").value = me?.username || ""; setTimeout(() => $("curPass").focus(), 0); }
+}
+function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 3000); }
+
+$("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = e.submitter || $("loginForm").querySelector("button"); btn.disabled = true; $("loginMsg").textContent = "";
+  try {
+    const res = await api("/api/admin/login", { method: "POST", body: JSON.stringify({ username: $("loginUser").value, password: $("loginPass").value }) });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error?.message || "Přihlášení selhalo.");
+    setToken(body.token); me = body;
+    const pw = $("loginPass").value; $("loginPass").value = "";
+    if (body.must_change_password) { showScreen("change"); $("curPass").value = pw; $("newPass").focus(); }
+    else { showScreen(null); start(); }
+  } catch (err) { $("loginMsg").textContent = err.message; }
+  finally { btn.disabled = false; }
+});
+
+$("changeForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("changeMsg").textContent = "";
+  if ($("newPass").value !== $("newPass2").value) { $("changeMsg").textContent = "Nová hesla se neshodují."; return; }
+  const btn = $("changeForm").querySelector("button"); btn.disabled = true;
+  try {
+    me = await apiJson("/api/admin/password", { method: "POST", body: JSON.stringify({ current_password: $("curPass").value, new_password: $("newPass").value }) });
+    ["curPass", "newPass", "newPass2"].forEach((id) => $(id).value = "");
+    showScreen(null); toast("Heslo změněno."); start();
+  } catch (err) { if (!err.silent) $("changeMsg").textContent = err.message; }
+  finally { btn.disabled = false; }
+});
+
+$("logoutBtn").addEventListener("click", async () => {
+  try { await api("/api/admin/logout", { method: "POST", body: "{}" }); } catch {}
+  setToken(null); me = null; stop(); showScreen("login");
+});
+
+$("exportBtn").addEventListener("click", async () => {
+  try {
+    const res = await api(`/api/admin/export/visits.csv?${query()}`);
+    if (!res.ok) throw new Error((await res.json()).error?.message || res.statusText);
+    const blob = await res.blob();
+    const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "")?.[1] || "navstevy.csv";
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (err) { if (!err.silent) toast("Export selhal: " + err.message); }
+});
+
+// Two-step confirm instead of a blocking dialog.
+$("endSeasonBtn").addEventListener("click", async () => {
+  const btn = $("endSeasonBtn");
+  if (!btn.classList.contains("armed")) {
+    btn.classList.add("armed"); btn.textContent = "Opravdu ukončit?";
+    clearTimeout(btn.t); btn.t = setTimeout(() => { btn.classList.remove("armed"); btn.textContent = "Ukončit sezónu"; }, 4000);
+    return;
+  }
+  clearTimeout(btn.t); btn.classList.remove("armed"); btn.textContent = "Ukončit sezónu";
+  try {
+    const r = await apiJson("/api/admin/seasons/end", { method: "POST", body: "{}" });
+    const w = [...r.ranking].sort((a, b) => b.score - a.score)[0];
+    toast(`Sezóna ${r.ended} ukončena${w.score ? ` – vyhrál tým ${w.team}` : ""}. Začíná ${r.current.season_id}.`);
+    load();
+  } catch (err) { if (!err.silent) toast("Nepodařilo se: " + err.message); }
+});
+
+let pollT = null, tickT = null;
+function stop() { clearInterval(pollT); clearInterval(tickT); pollT = tickT = null; }
+async function start() {
+  stop();
+  try { me = await apiJson("/api/admin/me"); } catch { return; }
+  if (me.must_change_password) { showScreen("change"); return; }
+  $("who").textContent = me.username;
+  load(); pollT = setInterval(load, 10000); tickT = setInterval(tick, 1000);
+}
+
+async function load() {
+  if (!token) return;
+  try {
+    const res = await api(`/api/dashboard?${query()}`);
+    if (!res.ok) throw new Error((await res.json()).error?.message || res.statusText);
+    data = await res.json();
+    season = data.season;
+    render();
+    $("error").style.display = "none";
+    $("live").classList.remove("off");
+  } catch (err) {
+    if (err.silent) { stop(); return; }
+    $("error").textContent = "Nepodařilo se načíst data z API: " + err.message;
+    $("error").style.display = "block";
+    $("live").classList.add("off");
+  }
+}
+
+function render() {
+  const s = data.stats;
+  $("seasonName").textContent = "Sezóna " + season.season_id.replace("-", " ");
+  $("kVisits").textContent = fmt.format(s.total_visits);
+  $("kVisitsSub").textContent = fmt.format(s.total_points) + " rozdaných bodů";
+  $("kPois").textContent = fmt.format(s.unique_pois);
+  $("kPoisSub").textContent = `${String(s.coverage_pct).replace(".", ",")} % z ${fmt.format(s.poi_total)} míst`;
+  $("kGems").textContent = String(s.gem_share_pct).replace(".", ",") + " %";
+  $("kPlayers").textContent = fmt.format(s.players);
+  renderTeams(); renderEvents(); renderMap(s);
+  renderLine($("byDay"), s.by_day.map((d) => ({ label: d.key, value: d.count })));
+  renderColumns($("byHour"), s.by_hour_of_day.map((d) => ({ label: d.hour, value: d.count })));
+  renderBars($("byCategory"), topWithOther(s.by_category, 10));
+  renderBars($("byOrp"), s.by_orp.map((r) => ({ label: r.label, count: r.count, other: r.key === "other" })));
+  renderTable(s.top_pois);
+  fillTimelineKeys(s);
+  loadTimeline();
+}
+
+function topWithOther(rows, n) {
+  const top = rows.slice(0, n).map((r) => ({ label: r.label, count: r.count }));
+  const rest = rows.slice(n).reduce((a, r) => a + r.count, 0);
+  if (rest) top.push({ label: "Ostatní", count: rest, other: true });
+  return top;
+}
+
+function renderTeams() {
+  const teams = data.teams, max = Math.max(1, ...teams.map((t) => t.score));
+  const leader = [...teams].sort((a, b) => b.score - a.score)[0];
+  $("teams").innerHTML = teams.map((t) => `
+    <div class="team" style="--c:${t.color}" data-tip="${esc(t.name)}: ${fmt.format(t.score)} b. · ${t.members} hráčů">
+      <div class="mark" aria-hidden="true"></div>
+      <div><div class="name">${esc(t.name)}${t.team === leader.team && t.score > 0 ? '<span class="crown">vede</span>' : ""}</div><div class="members">${t.members} hráčů · vlastní ${t.owned_pois ?? 0} míst</div></div>
+      <div class="score">${fmt.format(t.score)}</div>
+      <div class="bar"><i style="width:${(t.score / max * 100).toFixed(1)}%"></i></div>
+    </div>`).join("");
+  const names = Object.fromEntries(teams.map((t) => [t.team, t.name]));
+  const played = data.history.filter((h) => h.ranking.some((r) => r.score > 0)).slice(0, 3);
+  $("history").innerHTML = played.length ? played.map((h) => {
+    const w = [...h.ranking].sort((a, b) => b.score - a.score)[0];
+    return `<li>${esc(h.season_id)}: vyhráli <span class="dot" style="--c:${TEAM[w.team]}"></span>${esc(names[w.team] || w.team)} (${fmt.format(w.score)} b.)</li>`;
+  }).join("") : "";
+}
+
+function renderEvents() {
+  const { weekly, daily } = data.events;
+  const until = (iso) => "do " + new Date(iso).toLocaleString("cs-CZ", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
+  let html = "";
+  if (daily) html += `<div class="ev-head"><span>Denní bonus</span><span>${until(daily.ends_at)}</span></div>
+    <div class="event daily"><div class="x">×${String(daily.multiplier).replace(".", ",")}</div>
+      <div><div class="t">${esc(daily.category_label)}</div><div class="s">všech ${daily.poi_count} míst v kategorii</div></div></div>`;
+  if (weekly.length) html += `<div class="ev-head"><span>Týdenní bonusová místa</span><span>${until(weekly[0].ends_at)}</span></div>` + weekly.map((e) => `
+    <div class="event"><div class="x">×${e.multiplier}</div>
+      <div><div class="t">${esc(e.poi_name)}</div><div class="s">${esc(e.category_label)}${e.municipality ? " · " + esc(e.municipality) : ""} · ${e.base_points} → <b>${e.bonus_points} b.</b></div></div>
+    </div>`).join("");
+  $("events").innerHTML = html || '<div class="empty">Žádný aktivní bonus.</div>';
+}
+
+/* Map layers: visit heatmap, or team territory (owner of each place this season). */
+let mapMode = "heat";
+try { mapMode = localStorage.getItem("dashMapMode") || "heat"; } catch {}
+const territory = hasMap && L.layerGroup();
+async function loadTerritory() {
+  if (!hasMap || mapMode !== "teams") return;
+  try {
+    const res = await fetch(`${API}/api/poi?lite=1&owner=hory,reky,lesy`);
+    const fc = await res.json();
+    territory.clearLayers();
+    for (const f of fc.features) {
+      const p = f.properties, [lon, lat] = f.geometry.coordinates, c = p.team_checkins;
+      L.circleMarker([lat, lon], { radius: 5, color: "#fff", weight: 1.5, fillColor: TEAM[p.owner_team], fillOpacity: .95 })
+        .bindTooltip(`<b>${esc(p.name)}</b><br>Hory ${c.hory} · Řeky ${c.reky} · Lesy ${c.lesy}`).addTo(territory);
+    }
+  } catch {}
+}
+function applyMapMode() {
+  if (!hasMap) return;
+  const teamsMode = mapMode === "teams";
+  document.querySelectorAll("#mapMode button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mapMode)));
+  $("legendHeat").hidden = teamsMode; $("legendTeams").hidden = !teamsMode;
+  $("mapTitle").textContent = teamsMode ? "Území týmů" : "Heatmapa návštěv";
+  $("mapHint").textContent = teamsMode ? "Místo patří týmu s nejvíce check-iny v této sezóně (při remíze ho drží dosavadní vlastník)" : "Hustota check-inů; kroužky = nejnavštěvovanější místa, ★ = týdenní bonusové místo";
+  if (teamsMode) { map.removeLayer(heat); map.removeLayer(markers); territory.addTo(map); loadTerritory(); }
+  else { map.removeLayer(territory); heat.addTo(map); markers.addTo(map); }
+}
+document.querySelectorAll("#mapMode button").forEach((b) => b.addEventListener("click", () => {
+  mapMode = b.dataset.mode; try { localStorage.setItem("dashMapMode", mapMode); } catch {}
+  applyMapMode();
+}));
+applyMapMode();
+
+function renderMap(s) {
+  if (!hasMap) return;
+  loadTerritory();
+  const max = Math.max(1, ...s.heatmap.map((h) => h[2]));
+  heat.setLatLngs(s.heatmap.map(([lat, lon, c]) => [lat, lon, Math.min(1, .3 + c / max)]));
+  markers.clearLayers();
+  for (const p of s.top_pois.slice(0, 10)) {
+    if (p.lat == null) continue;
+    L.circleMarker([p.lat, p.lon], { radius: 6 + Math.sqrt(p.count) * 1.5, color: "#fff", weight: 2, fillColor: TEAM[p.owner_team] || "#5E5A50", fillOpacity: .9 })
+      .bindTooltip(`<b>${esc(p.name)}</b><br>${p.count} návštěv · ${esc(p.municipality || "")}`).addTo(markers);
+  }
+  for (const e of data.events.weekly) {
+    if (e.lat == null) continue;
+    L.marker([e.lat, e.lon], { icon: L.divIcon({ className: "", html: `<div style="width:26px;height:26px;border-radius:50%;background:#F2C230;border:2px solid #3A2E05;display:grid;place-items:center;font-weight:900;font-size:14px;color:#3A2E05">★</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }) })
+      .bindTooltip(`<b>${esc(e.poi_name)}</b><br>bonus ×${e.multiplier} (${e.bonus_points} b.)`).addTo(markers);
+  }
+}
+
+function renderBars(el, rows) {
+  if (!rows.length) { el.innerHTML = '<div class="empty">Zatím žádné návštěvy.</div>'; return; }
+  const max = Math.max(...rows.map((r) => r.count)), total = rows.reduce((a, r) => a + r.count, 0);
+  el.innerHTML = rows.map((r) => `
+    <div class="hbar" data-tip="${esc(r.label)}: ${fmt.format(r.count)} (${Math.round(r.count / total * 100)} %)">
+      <span class="k">${esc(r.label)}</span><span class="track"><i style="width:${(r.count / max * 100).toFixed(1)}%${r.other ? ";background:#B9B2A3" : ""}"></i></span><span class="v">${fmt.format(r.count)}</span>
+    </div>`).join("");
+}
+
+function niceMax(v) { if (v <= 5) return 5; const p = 10 ** Math.floor(Math.log10(v)); return Math.ceil(v / p / (v / p > 5 ? 2 : 1)) * p * (v / p > 5 ? 2 : 1); }
+function frame(svg) { const w = svg.clientWidth || 500, h = 200; svg.setAttribute("viewBox", `0 0 ${w} ${h}`); return { w, h, l: 34, r: 8, t: 8, b: 24 }; }
+function yGrid(f, max) {
+  let out = "";
+  for (let i = 0; i <= 4; i++) { const v = max / 4 * i, y = f.h - f.b - (f.h - f.t - f.b) * i / 4;
+    out += `<line class="gridline" x1="${f.l}" x2="${f.w - f.r}" y1="${y}" y2="${y}"/><text x="${f.l - 6}" y="${y + 4}" text-anchor="end">${fmt.format(Math.round(v))}</text>`; }
+  return out;
+}
+
+function renderLine(svg, pts) {
+  const f = frame(svg);
+  if (!pts.length) { svg.innerHTML = `<text x="${f.w / 2}" y="${f.h / 2}" text-anchor="middle">Zatím žádné návštěvy</text>`; return; }
+  const max = niceMax(Math.max(...pts.map((p) => p.value))), iw = f.w - f.l - f.r, ih = f.h - f.t - f.b;
+  const x = (i) => f.l + (pts.length === 1 ? iw / 2 : iw * i / (pts.length - 1)), y = (v) => f.t + ih - ih * v / max;
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join("");
+  const area = `${line}L${x(pts.length - 1)},${f.t + ih}L${x(0)},${f.t + ih}Z`;
+  const step = Math.ceil(pts.length / 6);
+  const day = (k) => { const [, m, d] = k.split("-"); return `${+d}. ${+m}.`; };
+  let labels = pts.map((p, i) => i % step === 0 ? `<text x="${x(i)}" y="${f.h - 6}" text-anchor="middle">${day(p.label)}</text>` : "").join("");
+  const hits = pts.map((p, i) => `<rect x="${x(i) - iw / pts.length / 2}" y="${f.t}" width="${Math.max(4, iw / pts.length)}" height="${ih}" fill="transparent" data-i="${i}" data-tip="${day(p.label)}: ${fmt.format(p.value)} check-inů"/>`).join("");
+  svg.innerHTML = `${yGrid(f, max)}<path d="${area}" fill="#1E63B5" opacity=".12"/><path d="${line}" fill="none" stroke="#1E63B5" stroke-width="2" stroke-linejoin="round"/>
+    <line id="xh" x1="0" x2="0" y1="${f.t}" y2="${f.t + ih}" stroke="#8C877B" stroke-dasharray="3 3" opacity="0"/><circle id="xd" r="4.5" fill="#1E63B5" stroke="#fff" stroke-width="2" opacity="0"/>${labels}${hits}`;
+  svg.onmousemove = (e) => { const i = e.target.dataset?.i; if (i === undefined) return; const xh = svg.querySelector("#xh"), xd = svg.querySelector("#xd");
+    xh.setAttribute("x1", x(+i)); xh.setAttribute("x2", x(+i)); xh.setAttribute("opacity", 1); xd.setAttribute("cx", x(+i)); xd.setAttribute("cy", y(pts[+i].value)); xd.setAttribute("opacity", 1); };
+  svg.onmouseleave = () => { svg.querySelector("#xh")?.setAttribute("opacity", 0); svg.querySelector("#xd")?.setAttribute("opacity", 0); };
+}
+
+/* Timeline: one category or ORP over time, days with that category's daily bonus shaded. */
+let tlDim = "category", tlKey = null;
+function fillTimelineKeys(s) {
+  const rows = tlDim === "category" ? s.by_category : s.by_orp;
+  const sel = $("tlKey");
+  const daily = data.events.daily?.category;
+  const options = rows.map((r) => ({ key: r.key, label: r.label }));
+  if (tlDim === "category" && daily && !options.some((o) => o.key === daily)) options.unshift({ key: daily, label: data.events.daily.category_label });
+  if (!tlKey || !options.some((o) => o.key === tlKey)) tlKey = (tlDim === "category" && daily) || options[0]?.key || null;
+  const html = options.map((o) => `<option value="${esc(o.key)}"${o.key === tlKey ? " selected" : ""}>${esc(o.label)}${tlDim === "category" && o.key === daily ? " – dnes bonus" : ""}</option>`).join("");
+  if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
+  $("tlLegend").style.display = tlDim === "category" ? "" : "none";
+}
+async function loadTimeline() {
+  if (!tlKey) { $("timeline").innerHTML = ""; $("tlSummary").textContent = "Zatím žádné návštěvy."; return; }
+  try {
+    const t = await apiJson(`/api/admin/stats/timeline?${query()}&dimension=${tlDim}&key=${encodeURIComponent(tlKey)}`);
+    renderTimeline($("timeline"), t.days);
+    const fmt1 = (v) => String(v).replace(".", ",");
+    $("tlSummary").textContent = tlDim === "category" && t.bonus_days
+      ? `${t.label}: ve dnech s denním bonusem průměrně ${fmt1(t.avg_per_bonus_day)} check-inů za den, v ostatních dnech ${fmt1(t.avg_per_other_day)}.`
+      : `${t.label}: průměrně ${fmt1(t.avg_per_other_day ?? 0)} check-inů za den${tlDim === "category" ? "; v tomto období neměla kategorie denní bonus" : ""}.`;
+  } catch (err) { if (!err.silent) $("tlSummary").textContent = "Nepodařilo se načíst: " + err.message; }
+}
+function renderTimeline(svg, days) {
+  const f = frame(svg), max = niceMax(Math.max(1, ...days.map((d) => d.count))), iw = f.w - f.l - f.r, ih = f.h - f.t - f.b;
+  const bw = iw / Math.max(1, days.length), gap = Math.min(2, bw * .2);
+  const day = (k) => { const [, m, d] = k.split("-"); return `${+d}. ${+m}.`; };
+  const step = Math.ceil(days.length / 8);
+  let bands = "", bars = "";
+  days.forEach((d, i) => {
+    const x0 = f.l + i * bw, w = bw - gap, h = ih * d.count / max, y0 = f.t + ih - h, r = Math.min(4, w / 2, h);
+    if (d.bonus) bands += `<rect x="${x0 - gap / 2}" y="${f.t}" width="${bw}" height="${ih}" fill="#FBE7A6" opacity=".7"/>`;
+    if (h > 0) bars += `<path d="M${x0},${f.t + ih}V${y0 + r}Q${x0},${y0} ${x0 + r},${y0}H${x0 + w - r}Q${x0 + w},${y0} ${x0 + w},${y0 + r}V${f.t + ih}Z" fill="#1E63B5"/>`;
+    bars += `<rect x="${x0}" y="${f.t}" width="${bw}" height="${ih}" fill="transparent" data-tip="${day(d.key)}: ${fmt.format(d.count)} check-inů${d.bonus ? " · denní bonus" : ""}"/>`;
+    if (i % step === 0) bars += `<text x="${x0 + w / 2}" y="${f.h - 6}" text-anchor="middle">${day(d.key)}</text>`;
+  });
+  svg.innerHTML = bands + yGrid(f, max) + bars;
+}
+document.querySelectorAll("#tlDim button").forEach((b) => b.addEventListener("click", () => {
+  tlDim = b.dataset.dim; tlKey = null;
+  document.querySelectorAll("#tlDim button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  if (data) { fillTimelineKeys(data.stats); loadTimeline(); }
+}));
+$("tlKey").addEventListener("change", (e) => { tlKey = e.target.value; loadTimeline(); });
+
+function renderColumns(svg, pts) {
+  const f = frame(svg), max = niceMax(Math.max(1, ...pts.map((p) => p.value))), iw = f.w - f.l - f.r, ih = f.h - f.t - f.b;
+  const bw = iw / pts.length, gap = 2;
+  let bars = "";
+  pts.forEach((p, i) => { const h = ih * p.value / max, x0 = f.l + i * bw + gap / 2, w = bw - gap, y0 = f.t + ih - h, r = Math.min(4, w / 2, h);
+    bars += h > 0 ? `<path d="M${x0},${f.t + ih}V${y0 + r}Q${x0},${y0} ${x0 + r},${y0}H${x0 + w - r}Q${x0 + w},${y0} ${x0 + w},${y0 + r}V${f.t + ih}Z" fill="#1E63B5"/>` : "";
+    bars += `<rect x="${x0}" y="${f.t}" width="${w}" height="${ih}" fill="transparent" data-tip="${p.label}:00–${p.label}:59 · ${fmt.format(p.value)} check-inů"/>`;
+    if (p.label % 3 === 0) bars += `<text x="${x0 + w / 2}" y="${f.h - 6}" text-anchor="middle">${p.label}h</text>`; });
+  svg.innerHTML = yGrid(f, max) + bars;
+}
+
+function renderTable(rows) {
+  $("topPois").innerHTML = rows.length ? rows.map((p, i) => `
+    <tr><td>${i + 1}</td><td>${esc(p.name)}</td><td>${esc(p.category_label || "")}</td><td>${esc(p.municipality || "")}</td>
+    <td class="num">${p.points}</td><td class="num">${fmt.format(p.count)}</td>
+    <td>${p.owner_team ? `<span class="dot" style="--c:${TEAM[p.owner_team]}"></span>${esc(data.teams.find((t) => t.team === p.owner_team)?.name || "")}` : "–"}</td></tr>`).join("")
+    : '<tr><td colspan="7" class="empty">Zatím žádné návštěvy.</td></tr>';
+}
+
+function tick() {
+  if (!season) return;
+  let s = Math.max(0, Math.round((Date.parse(season.ends_at) - Date.now()) / 1000));
+  const d = Math.floor(s / 86400); s %= 86400;
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  $("countdown").textContent = "Konec za " + (d ? `${d} d ${h} h` : `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`);
+  if (Date.parse(season.ends_at) <= Date.now() && !tick.reloading) { tick.reloading = true; load().finally(() => tick.reloading = false); }
+}
+
+document.querySelectorAll("#range button").forEach((b) => {
+  b.setAttribute("aria-pressed", String(b.dataset.range === range));
+  b.addEventListener("click", () => {
+    range = b.dataset.range; try { localStorage.setItem("dashRange", range); } catch {}
+    document.querySelectorAll("#range button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    load();
+  });
+});
+let resizeT; addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => data && render(), 150); });
+if (token) start(); else showScreen("login");
+</script>
+</body>
+</html>
