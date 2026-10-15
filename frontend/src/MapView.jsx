@@ -2,15 +2,16 @@ import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet.markercluster'
 import { TEAMS } from './geo.js'
+import { groupIcon } from './groups.js'
 
-const KHK_CENTER = [50.35, 15.85]
+const KHK_BOUNDS = [[49.95, 15.1], [50.8, 16.6]]
 
-function poiIcon(owner, selected) {
+function poiIcon(group, owner, selected) {
   const color = owner ? TEAMS[owner].color : '#777'
-  const size = selected ? 18 : 12
+  const size = selected ? 34 : 26
   return L.divIcon({
     className: '',
-    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 2px #000"></div>`,
+    html: `<div class="poi-marker${selected ? ' selected' : ''}" style="background:${color}"><span class="material-symbols-rounded">${groupIcon(group)}</span></div>`,
     iconSize: [size, size],
   })
 }
@@ -24,7 +25,7 @@ export default function MapView({ pois, owners, selectedId, onSelect, position, 
   handlers.current = { onSelect, onDemoClick }
 
   useEffect(() => {
-    const map = L.map(elRef.current).setView(KHK_CENTER, 9)
+    const map = L.map(elRef.current).fitBounds(KHK_BOUNDS)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors',
@@ -43,7 +44,7 @@ export default function MapView({ pois, owners, selectedId, onSelect, position, 
     const markers = pois.map((f) => {
       const [lon, lat] = f.geometry.coordinates
       const p = f.properties
-      const m = L.marker([lat, lon], { icon: poiIcon(owners[p.id], p.id === selectedId), title: p.name })
+      const m = L.marker([lat, lon], { icon: poiIcon(p.group, owners[p.id], p.id === selectedId), title: p.name })
       m.on('click', () => handlers.current.onSelect(p.id))
       return m
     })
@@ -65,7 +66,7 @@ export default function MapView({ pois, owners, selectedId, onSelect, position, 
     const f = pois.find((x) => x.properties.id === selectedId)
     if (f) {
       const [lon, lat] = f.geometry.coordinates
-      mapRef.current.setView([lat, lon], Math.max(mapRef.current.getZoom(), 14))
+      mapRef.current.setView([lat, lon], Math.max(mapRef.current.getZoom(), 14), { animate: false })
     }
   }, [selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
 

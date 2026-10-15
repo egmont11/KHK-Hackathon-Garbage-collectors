@@ -16,6 +16,12 @@ export async function loadPois() {
   return poiCache
 }
 
+let stopsCache
+export async function loadStops() {
+  if (!stopsCache) stopsCache = (await (await fetch('/data/stops.geojson')).json()).features
+  return stopsCache
+}
+
 // --- Real API ---
 async function http(method, path, body) {
   const token = localStorage.getItem('turistak-token')
@@ -37,11 +43,15 @@ const real = {
   teams: () => http('GET', '/api/teams'),
   currentSeason: () => http('GET', '/api/seasons/current'),
   poiOwners: async () => ({}), // TODO: z /api/poi (live stav), až ho backend bude vracet
+  poiStats: (id) => http('GET', `/api/poi/${encodeURIComponent(id)}`),
+  activeEvents: () => http('GET', '/api/events/active'),
+  myCheckins: async () => [], // TODO: endpoint v kontraktu zatím není
 }
 
 // --- Mock ---
 const KEY = 'turistak-mock'
 const RULES = { radius_m: 100, max_accuracy_m: 50, max_gap_s: 15, required_s: 60, max_speed_kmh: 30 }
+const EVENTS = { per_week: 3, multiplier: 2 }
 
 function currentQuarter() {
   const now = new Date()
@@ -118,7 +128,9 @@ const mock = {
     const elapsed = c.runStart ? (c.pings[c.pings.length - 1].ts - c.runStart) / 1000 : 0
     if (elapsed < RULES.required_s) throw new Error(`Ještě nemáš 60 s (${Math.floor(elapsed)} s).`)
     const poi = (await loadPois()).find((f) => f.properties.id === c.poi_id)
-    c.awarded_points = poi.properties.points
+    const event = (await mock.activeEvents()).find((e) => e.poi_id === c.poi_id)
+    c.awarded_points = poi.properties.points * (event ? event.multiplier : 1)
+    c.finished_at = new Date().toISOString()
     s.scores[c.team] += c.awarded_points
     s.owners[c.poi_id] = c.team
     save(s)
@@ -139,6 +151,42 @@ const mock = {
 
   async poiOwners() {
     return load().owners
+  },
+
+  // detail POI: body a návštěvy po týmech v aktuální sezóně
+  async poiStats(id) {
+    const s = load()
+    const teams = { hory: { points: 0, visits: 0 }, reky: { points: 0, visits: 0 }, lesy: { points: 0, visits: 0 } }
+    for (const c of Object.values(s.checkins)) {
+      if (c.poi_id !== id || !c.awarded_points) continue
+      teams[c.team].points += c.awarded_points
+      teams[c.team].visits += 1
+    }
+    const visits = Object.values(teams).reduce((a, t) => a + t.visits, 0)
+    return { id, last_team: s.owners[id] || null, visits, teams }
+  },
+
+  // quick time eventy: každý týden 3 pseudonáhodná POI s ×2 body (stejná pro všechny)
+  async activeEvents() {
+    const now = new Date()
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7))
+    const ends = new Date(monday.getTime() + 7 * 86400000)
+    const pois = await loadPois()
+    let seed = Math.floor(monday.getTime() / 86400000)
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648)
+    const picked = new Set()
+    while (picked.size < EVENTS.per_week) picked.add(pois[Math.floor(rnd() * pois.length)].properties.id)
+    return [...picked].map((poi_id, i) => ({
+      id: `week-${seed}-${i}`, type: 'bonus', poi_id, multiplier: EVENTS.multiplier,
+      starts_at: monday.toISOString(), ends_at: ends.toISOString(),
+    }))
+  },
+
+  async myCheckins() {
+    const s = load()
+    const player = me(s)
+    if (!player) return []
+    return Object.values(s.checkins).filter((c) => c.player_id === player.player_id && c.awarded_points)
   },
 }
 
