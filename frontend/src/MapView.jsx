@@ -117,13 +117,22 @@ export default function MapView({ pois, live, visited, selectedId, onSelect, pos
     }
   }, [position])
 
-  // Vybrané místo vycentrovat; od zoomu 15 se neclusteruje, takže bude vidět.
+  // Vybrané místo plynule vycentrovat (pan / přelet); od zoomu 15 se neclusteruje, takže bude vidět.
   useEffect(() => {
     if (!selectedId) return
     const f = pois.find((x) => x.properties.id === selectedId)
     if (f) {
       const [lon, lat] = f.geometry.coordinates
-      mapRef.current.setView([lat, lon], Math.max(mapRef.current.getZoom(), 15), { animate: false })
+      const map = mapRef.current
+      const zoom = Math.max(map.getZoom(), 15)
+      // Během letu je cedule schovaná v clusteru a cluster pak vykreslí starou ikonu → po doletu obnovit.
+      map.once('moveend', () => {
+        const entry = markersRef.current.get(selectedId)
+        if (entry) entry.marker.setIcon(entry.marker.options.icon)
+      })
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) map.setView([lat, lon], zoom, { animate: false })
+      else if (zoom === map.getZoom()) map.panTo([lat, lon], { animate: true, duration: 0.5, easeLinearity: 0.3 })
+      else map.flyTo([lat, lon], zoom, { duration: 0.9 })
     }
   }, [selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
 
