@@ -494,8 +494,7 @@ def merge_colocated(pois):
 
     Pořadí určuje DATASETS (první vyhrává id, kategorii, polohu a zastávky).
     Název „A · B“, u 3+ míst „A · B a N další“; ostatní kategorie do also_in.
-    Body = průměr bodů všech sloučených + nejvyšší z nich, max. points.max."""
-    c = CONFIG["points"]
+    Body = nejvyšší z bodů sloučených POI (před sloučením)."""
     grid = Grid([(p["lat"], p["lon"], i) for i, p in enumerate(pois)])
     parent = list(range(len(pois)))
 
@@ -527,8 +526,7 @@ def merge_colocated(pois):
                  if not any(j != i and norm_name(n) in norm_name(o) and norm_name(n) != norm_name(o) for j, o in enumerate(names))]
         shown = list(dict.fromkeys(shown))
         first["name"] = " · ".join(shown) if len(shown) <= 2 else f"{shown[0]} · {shown[1]} a {len(shown) - 2} další"
-        pts = [m["points"] for m in members]
-        first["points"] = int(round(min(sum(pts) / len(pts) + max(pts), c["max"])))
+        first["points"] = max(m["points"] for m in members)
         for m in members[1:]:
             for cat in [m["category"], *m["also_in"]]:
                 if cat != first["category"] and cat not in first["also_in"]:

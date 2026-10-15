@@ -130,7 +130,7 @@ Kromě válečných hrobů a knihoven je to asi 1 850 POI, s knihovnami asi 2 30
 
 ### 2.3 Čištění
 - Deduplikace: stejné `name` (normalizované, bez diakritiky a malých/velkých písmen) a vzdálenost < 75 m znamená jedno POI. Ponech první podle pořadí tabulky, ostatní kategorie ulož do `also_in` (např. Adalbertinum je v divadlech i v kulturních domech).
-- Stejné místo: POI s různými jmény do 5 m od sebe se sloučí do jednoho. Název „A · B“ (u 3+ „A · B a N další“, název obsažený v jiném se vynechá), ostatní kategorie do `also_in`, seznam v `merged`. Body = průměr bodů sloučených + nejvyšší z nich (max. 100).
+- Stejné místo: POI s různými jmény do 5 m od sebe se sloučí do jednoho. Název „A · B“ (u 3+ „A · B a N další“, název obsažený v jiném se vynechá), ostatní kategorie do `also_in`, seznam v `merged`. Body = nejvyšší z bodů sloučených POI.
 - `is_nkp`: shoda s vrstvami NKP (bodové + pozemky) podle vzdálenosti < 150 m nebo podle názvu.
 - Zahoď body mimo hranici kraje. Polygon kraje: item `f8a73250419c48f6a8118cfed2720566`, nebo tolerantně bbox 15.0–16.9 E, 49.9–50.9 N.
 
