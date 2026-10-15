@@ -1,0 +1,20 @@
+# SITE_ADDRESS=:80 -> jen HTTP (lokálně). SITE_ADDRESS=krajanek.example.cz -> Caddy samo získá HTTPS
+# certifikát (Let's Encrypt), což je potřeba pro GPS a instalaci PWA na telefonech.
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	@backend path /api/* /dashboard /dashboard/* /vendor/* /health
+	handle @backend {
+		reverse_proxy backend:3001
+	}
+
+	handle {
+		root * /srv
+		@fresh path /sw.js /registerSW.js /index.html /manifest.webmanifest
+		header @fresh Cache-Control "no-cache"
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
+}

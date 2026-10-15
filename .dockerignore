@@ -1,0 +1,13 @@
+**/node_modules
+**/dist
+**/*.log
+.git
+.claude
+data/.cache
+data/turistika
+data/doprava
+data/infogram
+docs
+Claude outputs
+*.zip
+.env
