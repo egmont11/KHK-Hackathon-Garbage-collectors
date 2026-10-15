@@ -1,0 +1,32 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "backend", "run", "demo"],
+      "env": { "CHECKIN_SECONDS": "10" },
+      "port": 3001
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "backend-test",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "backend", "run", "demo"],
+      "env": { "PORT": "3011", "CHECKIN_SECONDS": "10", "DEMO_SEASON_SECONDS": "180" },
+      "port": 3011
+    },
+    {
+      "name": "frontend-test",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev", "--", "--port", "5174", "--strictPort"],
+      "env": { "BACKEND_URL": "http://localhost:3011" },
+      "port": 5174
+    }
+  ]
+}

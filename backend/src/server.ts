@@ -123,6 +123,9 @@ function liveState(poi: Poi, seasonId = seasons.current().id) {
     // Team battles (cosmetic): colour the marker by owner_team, the team with most check-ins this season.
     owner_team: ownership?.owner ?? null,
     team_checkins: ownership?.counts ?? { hory: 0, reky: 0, lesy: 0 },
+    // Points each team earned at the place this season; top_team = most points (ribbon on the map pin).
+    team_points: ownership?.points ?? { hory: 0, reky: 0, lesy: 0 },
+    top_team: ownership?.topTeam ?? null,
     last_team: store.latestTeam(poi.id),
     visits: store.visitCount(poi.id),
     event_multiplier: bonus.event ? bonus.multiplier : null,
@@ -677,7 +680,7 @@ app.get<{ Querystring: StatsQuery }>("/api/admin/export/visits.csv", { preHandle
       point ? String(point.lat) : "", point ? String(point.lon) : "",
     ]);
   }
-  reply.type("text/csv; charset=utf-8").header("content-disposition", `attachment; filename="turistak-navstevy-${new Date().toISOString().slice(0, 10)}.csv"`);
+  reply.type("text/csv; charset=utf-8").header("content-disposition", `attachment; filename="krajanek-navstevy-${new Date().toISOString().slice(0, 10)}.csv"`);
   // BOM + semicolons so Czech Excel opens it correctly.
   return "\uFEFF" + rows.map((row) => row.map(cell).join(";")).join("\r\n") + "\r\n";
 });

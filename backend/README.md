@@ -1,4 +1,4 @@
-# Turisťák backend
+# Krajánek backend
 
 REST API + region dashboard, Fastify + TypeScript. What's done and what isn't: [STATUS.md](STATUS.md). Loads `data/poi.geojson` at startup (missing file → empty catalog, `/health` reports `poi_count: 0`).
 
@@ -54,7 +54,7 @@ All errors are `{"error": {"code", "message"}}`. Check-in endpoints need `Author
 
 | Endpoint | Notes |
 |---|---|
-| `GET /api/poi` | GeoJSON. Filters: `bbox=w,s,e,n`, `category=a,b`, `group=a,b`, `min_points`, `max_points`, `near=lat,lon` (+ optional `radius_m`; adds `distance_m`, sorted by distance), `max_stop_m` (stop within N m). `lite=1` returns only id/name/category/group/municipality/points/is_nkp (much smaller payload). `bonus=1` returns only places with an active bonus; `owner=hory,reky,lesy,none` filters by owning team. Live props: `owner_team` (use this for the marker colour), `team_checkins` `{hory, reky, lesy}`, `last_team`, `visits`, `event_multiplier`, `event_type`, `bonus_points`. |
+| `GET /api/poi` | GeoJSON. Filters: `bbox=w,s,e,n`, `category=a,b`, `group=a,b`, `min_points`, `max_points`, `near=lat,lon` (+ optional `radius_m`; adds `distance_m`, sorted by distance), `max_stop_m` (stop within N m). `lite=1` returns only id/name/category/group/municipality/points/is_nkp (much smaller payload). `bonus=1` returns only places with an active bonus; `owner=hory,reky,lesy,none` filters by owning team. Live props: `owner_team` (use this for the marker colour), `team_checkins` `{hory, reky, lesy}`, `team_points` `{hory, reky, lesy}` (points earned at the place this season), `top_team` (most points; tie keeps the leader), `last_team`, `visits`, `event_multiplier`, `event_type`, `bonus_points`. |
 | `GET /api/poi/:id` | Detail + `lat`, `lon`, `last_team`, `visits`, `last_visited_at`, `nearest_bus_stop`, `nearest_train_stop`, `idos_url`, `event`. |
 | `GET /api/categories` | Groups and categories with labels and counts (for the filter UI). |
 | `POST /api/players` `{name, team}` | → `{player_id, token, name, team}` |

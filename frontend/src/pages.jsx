@@ -1,54 +1,75 @@
 import { useEffect, useState } from 'react'
 import { api, loadStops, resetMock, usingMock } from './api.js'
 import { TEAMS, distanceM, formatDistance } from './geo.js'
-import { Icon, PageHeader, TeamBadge } from './ui.jsx'
+import { Icon, PageHeader, TeamBadge, TeamIcon } from './ui.jsx'
 
 const StopIcon = ({ type }) => <Icon name={type === 'train' ? 'train' : 'directions_bus'} />
 
 const idosUrl = (from, to) => 'https://idos.cz/vlakyautobusy/spojeni/?' + new URLSearchParams({ f: from || '', t: to })
 const poiLatLon = (poi) => ({ lat: poi.geometry.coordinates[1], lon: poi.geometry.coordinates[0] })
+const fmtDate = (iso) => new Date(iso).toLocaleDateString('cs', { day: 'numeric', month: 'numeric' })
+const fmtDateTime = (iso) => new Date(iso).toLocaleString('cs', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-// --- Info o POI: body týmů na místě, info o týmech, dole text o místě ---
-export function PoiInfoPage({ poi, owner }) {
-  const p = poi.properties
-  const [stats, setStats] = useState(null)
-  const [teams, setTeams] = useState([])
+function usePoiDetail(id) {
+  const [detail, setDetail] = useState(null)
+  const [error, setError] = useState(null)
   useEffect(() => {
-    api.poiStats(p.id).then(setStats)
-    api.teams().then(setTeams)
-  }, [p.id])
-  const holder = stats?.last_team || owner
+    let alive = true
+    setDetail(null)
+    api.poiDetail(id).then((d) => alive && setDetail(d), (e) => alive && setError(e.message))
+    return () => { alive = false }
+  }, [id])
+  return [detail, error]
+}
+
+// --- Info o POI: rozcestník, souboj týmů, text o místě ---
+export function PoiInfoPage({ poi, live = {}, visit }) {
+  const p = poi.properties
+  const [d, error] = usePoiDetail(p.id)
+  const owner = d?.owner_team ?? live.owner_team
+  const event = d?.event
+  const checkins = d?.team_checkins || {}
+  const points = d?.team_points // body týmů na místě (backend), jinak jen návštěvy
+  const top = d?.top_team ?? live.top_team
 
   return (
     <>
-      <PageHeader title={p.name} />
-      <p><b>{p.points} b.</b> za zabrání · {p.category_label}{p.is_nkp && ' · národní kulturní památka'}</p>
+      <PageHeader title="" />
+      <div className="signpost static">
+        <div className="signpost-title">{p.name}</div>
+        <div className="signpost-meta">
+          {live.event_multiplier
+            ? <span className="pts">{live.bonus_points} b. ×{live.event_multiplier}</span>
+            : <span className="pts">{p.points} b.</span>}
+          {p.municipality && <span><Icon name="location_on" />{p.municipality}</span>}
+        </div>
+      </div>
+      <div className="chips">
+        <span className="chip">{p.category_label}</span>
+        {p.is_nkp && <span className="chip gold"><Icon name="workspace_premium" fill /> NKP</span>}
+        {owner && <span className="chip"><Icon name="flag" fill /> <TeamBadge team={owner} /></span>}
+        {event && (
+          <span className="chip gold">
+            <Icon name="bolt" fill /> ×{event.multiplier} do {event.type === 'daily_category' ? fmtDateTime(event.ends_at) : fmtDate(event.ends_at)}
+          </span>
+        )}
+        {visit && <span className="chip mine"><Icon name="check_circle" fill /> {fmtDate(visit.at)} · +{visit.points} b.</span>}
+      </div>
 
-      <h3>Týmy na tomto místě (tato sezóna)</h3>
-      <p>{holder ? <>Místo drží <TeamBadge team={holder} /></> : 'Místo zatím nikdo nezabral.'}</p>
-      <table>
-        <thead><tr><th>Tým</th><th>Body tady</th><th>Návštěvy</th><th>Celkem v sezóně</th><th>Hráči</th></tr></thead>
-        <tbody>
-          {Object.keys(TEAMS).map((t) => {
-            const total = teams.find((x) => x.team === t)
-            return (
-              <tr key={t}>
-                <td><TeamBadge team={t} /></td>
-                <td>{stats?.teams?.[t]?.points ?? '–'}</td>
-                <td>{stats?.teams?.[t]?.visits ?? '–'}</td>
-                <td>{total?.score ?? '–'}</td>
-                <td>{total?.members ?? '–'}</td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+      {error && <p className="err">{error}</p>}
+      <div className="team-stats">
+        {Object.keys(TEAMS).map((t) => (
+          <div key={t} className={`team-stat${(top || owner) === t ? ' holder' : ''}`} style={{ '--c': TEAMS[t].color }}>
+            <TeamIcon team={t} size={26} />
+            <b>{points ? points[t] ?? 0 : checkins[t] ?? 0}</b>
+            <small>{points ? <><Icon name="directions_walk" /> {checkins[t] ?? 0}</> : 'návštěv'}</small>
+          </div>
+        ))}
+      </div>
+      {d?.last_visited_at && <p className="muted"><Icon name="schedule" /> Naposledy {fmtDateTime(d.last_visited_at)}</p>}
 
-      <h3>O místě</h3>
-      <p>{p.municipality || ''}</p>
-      {p.description ? <p>{p.description}</p> : <p><i>Popis zatím nemáme.</i></p>}
-      {p.web && <p><a href={p.web} target="_blank" rel="noreferrer">{p.web}</a></p>}
-      <p><small>Zdroj: {p.source} (data Královéhradeckého kraje)</small></p>
+      {p.description && <p className="prose">{p.description}</p>}
+      {p.web && <a className="btn-outline" href={p.web} target="_blank" rel="noreferrer"><Icon name="language" /> Web</a>}
     </>
   )
 }
@@ -58,6 +79,7 @@ export function TransportPage({ poi, position }) {
   const p = poi.properties
   const target = poiLatLon(poi)
   const dist = position ? distanceM(position.lat, position.lon, target.lat, target.lon) : null
+  const [d] = usePoiDetail(p.id)
   const [myStop, setMyStop] = useState(null)
 
   useEffect(() => {
@@ -66,140 +88,264 @@ export function TransportPage({ poi, position }) {
       let best = null
       for (const s of stops) {
         const [lon, lat] = s.geometry.coordinates
-        const d = distanceM(position.lat, position.lon, lat, lon)
-        if (!best || d < best.d) best = { name: s.properties.name, type: s.properties.type, d }
+        const dd = distanceM(position.lat, position.lon, lat, lon)
+        if (!best || dd < best.d) best = { name: s.properties.name, type: s.properties.type, d: dd }
       }
       setMyStop(best)
     })
   }, [position?.lat, position?.lon]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const stops = [p.nearest_bus, p.nearest_train].filter(Boolean).sort((a, b) => a.distance_m - b.distance_m)
+  const bus = d?.nearest_bus_stop ?? p.nearest_bus
+  const train = d?.nearest_train_stop ?? p.nearest_train
+  const stops = [bus, train].filter(Boolean).sort((a, b) => a.distance_m - b.distance_m)
 
   return (
     <>
-      <PageHeader title={`Doprava: ${p.name}`} />
-      <p>Vzdušnou čarou ode mě: <b>{dist != null ? formatDistance(dist) : 'neznám tvoji polohu'}</b></p>
-      <p>
-        Moje nejbližší zastávka:{' '}
-        {myStop ? <><StopIcon type={myStop.type} /> {myStop.name} ({formatDistance(myStop.d)})</> : '–'}
-      </p>
+      <PageHeader title={p.name} />
+      <div className="stat-row">
+        <div className="stat"><Icon name="near_me" /><b>{dist != null ? formatDistance(dist) : '–'}</b></div>
+        <div className="stat wide">
+          <Icon name="my_location" />
+          {myStop ? <span><StopIcon type={myStop.type} /> {myStop.name} <small>{formatDistance(myStop.d)}</small></span> : <b>–</b>}
+        </div>
+      </div>
 
-      <h3>Zastávky u místa</h3>
-      <ul>
-        {stops.map((s) => (
-          <li key={s.type}>
-            <StopIcon type={s.type} /> {s.type === 'train' ? 'vlak' : 'bus'} <b>{s.name}</b>, {formatDistance(s.distance_m)} od místa
-            <br />
-            <a href={idosUrl(myStop?.name, s.name)} target="_blank" rel="noreferrer">
-              Najít spoj v IDOS{myStop ? ` z ${myStop.name}` : ''}
-            </a>
-          </li>
-        ))}
-      </ul>
+      {stops.length === 0 && d?.idos_url && (
+        <a className="btn-outline" href={d.idos_url} target="_blank" rel="noreferrer">IDOS <Icon name="arrow_outward" /></a>
+      )}
+      {stops.map((s) => (
+        <div key={s.type} className="ticket">
+          <div className="ticket-icon"><StopIcon type={s.type} /></div>
+          <div className="ticket-body">
+            <b>{s.name}</b>
+            <small><Icon name="directions_walk" /> {formatDistance(s.distance_m)}</small>
+          </div>
+          <a className="ticket-btn" href={idosUrl(myStop?.name, s.name)} target="_blank" rel="noreferrer">
+            Spoj <Icon name="arrow_outward" />
+          </a>
+        </div>
+      ))}
 
-      <h3>Na kole</h3>
-      {p.category === 'cyklovylety'
-        ? <p>Tohle je start cyklovýletu. {p.description}</p>
-        : <p><i>Info o cyklostezkách zatím nemáme (chybí datová sada).</i></p>}
+      {p.category === 'cyklovylety' && (
+        <div className="ticket">
+          <div className="ticket-icon"><Icon name="directions_bike" /></div>
+          <div className="ticket-body"><small>{p.description}</small></div>
+        </div>
+      )}
     </>
   )
 }
 
 // --- Žebříček ---
-export function LeaderboardPage() {
-  const [teams, setTeams] = useState([])
-  const [season, setSeason] = useState(null)
+function useCountdown(endsAt) {
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
-    const load = () => { api.teams().then(setTeams); api.currentSeason().then(setSeason) }
-    load()
-    const id = setInterval(load, 10000)
-    const tick = setInterval(() => setNow(Date.now()), 1000)
-    return () => { clearInterval(id); clearInterval(tick) }
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
   }, [])
-  const left = season ? Math.max(0, new Date(season.ends_at) - now) : 0
+  const left = endsAt ? Math.max(0, new Date(endsAt) - now) : 0
   const d = Math.floor(left / 86400000)
   const h = Math.floor((left % 86400000) / 3600000)
   const m = Math.floor((left % 3600000) / 60000)
+  const s = Math.floor((left % 60000) / 1000)
+  if (!endsAt) return ''
+  if (left === 0) return 'počítám výsledky…'
+  return d > 0 ? `${d} d ${h} h ${m} min` : `${h} h ${m} min ${s} s`
+}
+
+export function LeaderboardPage({ season, myTeam }) {
+  const [teams, setTeams] = useState([])
+  const [history, setHistory] = useState([])
+  const countdown = useCountdown(season?.ends_at)
+  useEffect(() => {
+    const load = () => { api.teams().then(setTeams, () => {}); api.seasonHistory().then(setHistory, () => {}) }
+    load()
+    const id = setInterval(load, 10000)
+    return () => clearInterval(id)
+  }, [season?.season_id])
+  const sorted = [...teams].sort((a, b) => b.score - a.score)
+  const max = Math.max(1, ...sorted.map((t) => t.score))
   return (
     <>
-      <PageHeader title={`Žebříček ${season?.season_id || ''}`} />
-      <ol>
-        {teams.map((t) => <li key={t.team}><TeamBadge team={t.team} /> {t.score} b. ({t.members} hráčů)</li>)}
-      </ol>
-      {season && <p>Konec sezóny za {d} d {h} h {m} min</p>}
+      <PageHeader title="Žebříček" />
+      {season && (
+        <div className="season-pill">
+          <span>{season.season_id}</span>
+          <span><Icon name="hourglass_top" /> {countdown}</span>
+        </div>
+      )}
+      <div className="leaders">
+        {sorted.map((t, i) => (
+          <div key={t.team} className={`leader${t.team === myTeam ? ' mine' : ''}`} style={{ '--c': TEAMS[t.team]?.color }}>
+            <span className="rank">{i + 1}</span>
+            <TeamIcon team={t.team} size={30} />
+            <div className="leader-body">
+              <div className="leader-top">
+                <b>{TEAMS[t.team]?.label}</b>
+                <span className="score">{t.score.toLocaleString('cs')}</span>
+              </div>
+              <div className="bar"><i style={{ width: `${(t.score / max) * 100}%` }} /></div>
+              <small>
+                <span><Icon name="group" /> {t.members}</span>
+                {t.owned_pois != null && <span><Icon name="flag" /> {t.owned_pois}</span>}
+                {t.team === myTeam && <span>tvůj tým</span>}
+              </small>
+            </div>
+          </div>
+        ))}
+      </div>
+      {history.length > 0 && (
+        <>
+          <h3 className="section">Minulé sezóny</h3>
+          <ul className="visited">
+            {history.map((s) => {
+              const ranking = [...s.ranking].sort((a, b) => b.score - a.score)
+              return (
+                <li key={s.season_id}>
+                  <span>{s.season_id}</span>
+                  <span className="history-rank">
+                    <Icon name="emoji_events" fill /> <TeamBadge team={ranking[0]?.team} /> {ranking[0]?.score.toLocaleString('cs')}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      )}
     </>
   )
 }
 
-// --- Quick time eventy ---
-export function EventsPage({ pois, position, onShow }) {
-  const [events, setEvents] = useState([])
-  useEffect(() => { api.activeEvents().then(setEvents) }, [])
+// --- Quick time eventy (questy) ---
+export function EventsPage({ poiById, position, visited, onShow }) {
+  const [events, setEvents] = useState(null)
+  const [error, setError] = useState(null)
+  useEffect(() => { api.activeEvents().then(setEvents, (e) => setError(e.message)) }, [])
   return (
     <>
-      <PageHeader title="Události" />
-      {events.length === 0 && <p>Teď neběží žádná událost.</p>}
-      {events.map((e) => {
-        const poi = pois.find((f) => f.properties.id === e.poi_id)
+      <PageHeader title="Questy" />
+      {error && <p className="err">{error}</p>}
+      {events?.length === 0 && <div className="empty"><Icon name="flag" /></div>}
+      {events?.map((e) => {
+        if (e.type === 'daily_category') {
+          return (
+            <div key={e.id} className="quest daily">
+              <span className="mult">×{e.multiplier}</span>
+              <div className="quest-body">
+                <b>Dnes: {e.category_label}</b>
+                <small>
+                  <span><Icon name="location_on" /> {e.poi_count} míst</span>
+                  <span><Icon name="schedule" /> do {fmtDateTime(e.ends_at)}</span>
+                </small>
+              </div>
+            </div>
+          )
+        }
+        const poi = poiById.get(e.poi_id)
         if (!poi) return null
         const p = poi.properties
         const t = poiLatLon(poi)
         const dist = position ? distanceM(position.lat, position.lon, t.lat, t.lon) : null
+        const done = visited.get(p.id)
         return (
-          <div key={e.id} className="card">
-            <b>Do {new Date(e.ends_at).toLocaleDateString('cs')} navštiv {p.name}</b>
-            <div>×{e.multiplier} bodů = {p.points * e.multiplier} b. · {p.municipality}{dist != null && ` · ${formatDistance(dist)}`}</div>
-            <button onClick={() => onShow(p.id)}>Ukázat na mapě</button>
-          </div>
+          <button key={e.id} className={`quest${done ? ' done' : ''}`} onClick={() => onShow(p.id)}>
+            <span className="mult">{done ? <Icon name="check" /> : `×${e.multiplier}`}</span>
+            <div className="quest-body">
+              <b>{p.name}</b>
+              <small>
+                <span><Icon name="event" /> {fmtDate(e.ends_at)}</span>
+                {dist != null && <span><Icon name="near_me" /> {formatDistance(dist)}</span>}
+              </small>
+            </div>
+            <span className="quest-pts">{done ? `+${done.points}` : e.bonus_points ?? Math.round(p.points * e.multiplier)}<small> b.</small></span>
+          </button>
         )
       })}
     </>
   )
 }
 
-// --- Profil: uživatel, odznaky, nastavení ---
-const BADGES = [
-  { id: 'first', label: 'První zábor', need: 1, test: () => true },
-  { id: 'five', label: '5 míst', need: 5, test: () => true },
-  { id: 'twenty', label: '20 míst', need: 20, test: () => true },
-  { id: 'castles', label: 'Hradní pán (3 hrady/zámky)', need: 3, test: (p) => ['hrady', 'zamky'].includes(p.category) },
-  { id: 'views', label: 'Rozhledna (3 rozhledny)', need: 3, test: (p) => p.category === 'rozhledny' },
-  { id: 'nature', label: 'Přírodovědec (3 přírodní)', need: 3, test: (p) => p.group === 'priroda' },
-  { id: 'nkp', label: 'Národní poklad (1 NKP)', need: 1, test: (p) => p.is_nkp },
-  { id: 'groups', label: 'Všestranný (5 skupin)', need: 5, count: (ps) => new Set(ps.map((p) => p.group)).size },
+// --- Profil: uživatel, odznaky, zabraná místa, nastavení ---
+// Ikony k odznakům z backendu (backend/src/badges.ts); neznámé id dostane obecnou medaili.
+const BADGE_ICONS = {
+  'prvni-krok': 'flag', objevitel: 'hiking', cestovatel: 'landscape', dobyvatel: 'terrain',
+  'hradni-pan': 'castle', vyhled: 'visibility', historik: 'museum', 'poutni-cesta': 'church',
+  sladek: 'sports_bar', 'strazce-dedictvi': 'workspace_premium', 'krizem-krazem': 'explore',
+  dobrodruh: 'forest', 'lovec-bonusu': 'bolt', bet: 'casino', prevrat: 'swap_horiz', 'ranni-ptace': 'wb_twilight',
+}
+
+// Záložní odznaky jen pro mock (backend posílá vlastní v /api/players/me).
+const LOCAL_BADGES = [
+  { id: 'prvni-krok', name: 'První krok', description: 'První check-in', target: 1, test: () => true },
+  { id: 'objevitel', name: 'Objevitel', description: 'Navštiv 5 míst', target: 5, test: () => true },
+  { id: 'hradni-pan', name: 'Hradní pán', description: 'Navštiv 3 hrady nebo zámky', target: 3, test: (p) => ['hrady', 'zamky'].includes(p.category) },
+  { id: 'vyhled', name: 'Výhled!', description: 'Navštiv 3 rozhledny', target: 3, test: (p) => p.category === 'rozhledny' },
+  { id: 'strazce-dedictvi', name: 'Strážce dědictví', description: 'Navštiv národní kulturní památku', target: 1, test: (p) => p.is_nkp },
 ]
 
-export function ProfilePage({ player, pois, onLogout }) {
-  const [checkins, setCheckins] = useState([])
-  useEffect(() => { api.myCheckins().then(setCheckins) }, [])
-  const rows = checkins
-    .map((c) => ({ c, p: pois.find((f) => f.properties.id === c.poi_id)?.properties }))
-    .filter((r) => r.p)
-  const visited = rows.map((r) => r.p)
-  const total = checkins.reduce((a, c) => a + c.awarded_points, 0)
+export function ProfilePage({ player, me, poiById, onShow, onLogout }) {
+  const team = me?.team || player.team
+  const visits = [...(me?.visited || [])].sort((a, b) => (b.at || '').localeCompare(a.at || ''))
+  const visitedProps = visits.map((v) => poiById.get(v.poi_id)?.properties).filter(Boolean)
+  const badges = me?.badges ?? LOCAL_BADGES.map(({ test, ...b }) => {
+    const progress = visitedProps.filter(test).length
+    return { ...b, progress: Math.min(progress, b.target), earned: progress >= b.target }
+  })
 
   return (
     <>
-      <PageHeader title="Profil" />
-      <p><b>{player.name}</b> · <TeamBadge team={player.team} /></p>
-      <p>Tato sezóna: {visited.length} míst, {total} b. pro tým</p>
+      <PageHeader title="" />
+      <div className="profile-card">
+        <TeamIcon team={team} size={40} />
+        <div>
+          <b>{me?.name || player.name}</b>
+          <TeamBadge team={team} />
+        </div>
+      </div>
+      <div className="stat-row">
+        <div className="stat"><Icon name="location_on" /><b>{visits.length}</b></div>
+        <div className="stat"><Icon name="star" /><b>{me?.season_points ?? 0}</b></div>
+      </div>
 
-      <h3>Odznaky</h3>
-      <ul className="badges">
-        {BADGES.map((b) => {
-          const have = b.count ? b.count(visited) : visited.filter(b.test).length
-          const done = have >= b.need
-          return <li key={b.id} className={done ? '' : 'locked'}><Icon name={done ? 'military_tech' : 'lock'} /> {b.label} ({Math.min(have, b.need)}/{b.need})</li>
-        })}
-      </ul>
+      <div className="stamps">
+        {badges.map((b) => (
+          <div key={b.id} className={`stamp-badge${b.earned ? ' done' : ''}`} title={b.description}>
+            <div className="stamp-disc"><Icon name={b.earned ? BADGE_ICONS[b.id] || 'military_tech' : 'lock'} /></div>
+            <b>{b.name}</b>
+            <small>{Math.min(b.progress, b.target)}/{b.target}</small>
+          </div>
+        ))}
+      </div>
 
-      <h3>Navštívená místa</h3>
-      {visited.length === 0 ? <p>Zatím nic.</p> : <ul>{rows.map(({ c, p }) => <li key={c.id}>{p.name} (+{c.awarded_points} b.)</li>)}</ul>}
+      {me?.badge_archive?.length > 0 && (
+        <>
+          <h3 className="section">Minulé sezóny</h3>
+          <ul className="visited">
+            {me.badge_archive.map((s) => (
+              <li key={s.season_id}><span>{s.season_id}</span><span className="muted">{s.badges.map((b) => b.name).join(', ')}</span></li>
+            ))}
+          </ul>
+        </>
+      )}
 
-      <h3>Nastavení</h3>
-      <button onClick={onLogout}>Odhlásit</button>{' '}
-      {usingMock && <button onClick={() => { resetMock(); location.reload() }}>Reset mock dat</button>}
+      {visits.length > 0 && (
+        <ul className="visited">
+          {visits.map((v) => (
+            <li key={v.poi_id}>
+              <button className="link" onClick={() => onShow(v.poi_id)}>{poiById.get(v.poi_id)?.properties.name || v.poi_id}</button>
+              <b>+{v.points}</b>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="profile-actions">
+        <button className="btn-outline" onClick={() => { if (confirm('Odhlásit? Bez uloženého tokenu se k tomuto hráči už nevrátíš.')) onLogout() }}>
+          <Icon name="logout" /> Odhlásit
+        </button>
+        {usingMock && <button className="btn-outline" onClick={() => { resetMock(); location.reload() }}><Icon name="restart_alt" /> Mock</button>}
+        {!usingMock && <a className="btn-outline" href="/dashboard" target="_blank" rel="noreferrer"><Icon name="monitoring" /> Dashboard kraje</a>}
+      </div>
     </>
   )
 }

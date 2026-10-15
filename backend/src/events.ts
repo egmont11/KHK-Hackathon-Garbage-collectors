@@ -97,7 +97,7 @@ export class EventManager {
     if (!config.eventsEnabled || !this.weeklyCandidates.length || config.weeklyEventCount <= 0) return [];
     const round = roundAt(now, config.weeklyPeriodSeconds);
     if (this.weeklyCache?.round === round.index) return this.weeklyCache.events;
-    const order = shuffled(this.weeklyCandidates, seededRandom(`turistak-weekly-${round.index}-${config.weeklyPeriodSeconds}`));
+    const order = shuffled(this.weeklyCandidates, seededRandom(`krajanek-weekly-${round.index}-${config.weeklyPeriodSeconds}`));
     // Greedy pick with the minimum spacing; relax it only if the catalog can't satisfy it.
     let chosen: (Poi & Coordinates)[] = [];
     for (let minKm = config.weeklyMinDistanceKm; ; minKm *= 0.8) {
@@ -122,7 +122,7 @@ export class EventManager {
     const round = roundAt(now, config.dailyPeriodSeconds);
     if (this.dailyCache?.round === round.index) return this.dailyCache.event;
     const pick = (index: number) => {
-      const rand = seededRandom(`turistak-daily-${index}-${config.dailyPeriodSeconds}`);
+      const rand = seededRandom(`krajanek-daily-${index}-${config.dailyPeriodSeconds}`);
       return this.dailyCategories[Math.floor(rand() * this.dailyCategories.length)];
     };
     let category = pick(round.index);

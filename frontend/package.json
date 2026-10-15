@@ -1,5 +1,5 @@
 {
-  "name": "turistak-frontend",
+  "name": "krajanek-frontend",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -7,7 +7,8 @@
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview",
-    "dev:https": "HTTPS=1 vite --host"
+    "dev:https": "HTTPS=1 vite --host",
+    "start": "vite build && vite preview --host --port 5173 --strictPort"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^1.2.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vite-plugin-pwa": "^0.21.2"
   }
 }

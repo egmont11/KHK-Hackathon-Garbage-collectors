@@ -1,4 +1,4 @@
-# Plán – Turisťák
+# Plán – Krajánek
 
 *Objevuj, dobývej, poznávej kraj.*
 
