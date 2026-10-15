@@ -245,11 +245,10 @@ function Filters({ pois, filters, setFilters, count, position }) {
   }, [pois, filters.group])
   const setF = (k) => (e) => setFilters({ ...filters, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
   const toggle = (k, icon, label) => (
-    <label className="row toggle">
-      <Icon name={icon} />
-      <span>{label}</span>
+    <label className={`chip-toggle${filters[k] ? ' on' : ''}`}>
       <input type="checkbox" checked={filters[k]} onChange={setF(k)} />
-      <i />
+      <Icon name={icon} fill={filters[k]} />
+      <span>{label}</span>
     </label>
   )
   return (
@@ -260,35 +259,41 @@ function Filters({ pois, filters, setFilters, count, position }) {
       </label>
       <div className="group-chips">
         {groups.map((g) => (
-          <button key={g} className={filters.group === g ? 'active' : ''}
+          <button key={g} className={filters.group === g ? 'active' : ''} aria-pressed={filters.group === g} title={GROUPS[g]?.label ?? g}
             onClick={() => setFilters({ ...filters, group: filters.group === g ? '' : g, category: '' })}>
             <Icon name={groupIcon(g)} />
             <span>{GROUPS[g]?.label.split(' ')[0] ?? g}</span>
           </button>
         ))}
       </div>
-      <select value={filters.category} onChange={setF('category')}>
-        <option value="">Všechny kategorie</option>
-        {categories.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
-      </select>
-      <select value={filters.owner} onChange={setF('owner')}>
-        <option value="">Kdokoli drží</option>
-        <option value="none">Nikdo nedrží</option>
-        {Object.entries(TEAMS).map(([id, t]) => <option key={id} value={id}>Drží {t.label}</option>)}
-      </select>
-      <label className="row">
-        <Icon name="star" />
-        <input type="range" min="0" max="100" step="5" value={filters.minPoints} onChange={(e) => setFilters({ ...filters, minPoints: +e.target.value })} />
-        <b>{filters.minPoints}+</b>
-      </label>
-      <label className={`row${position ? '' : ' off'}`}>
-        <Icon name="near_me" />
-        <input type="number" min="0" inputMode="numeric" placeholder="–" value={filters.maxKm} onChange={setF('maxKm')} disabled={!position} />
-        <b>km</b>
-      </label>
-      {toggle('nearStop', 'directions_bus', '≤ 500 m')}
-      {toggle('bonus', 'bolt', 'Jen bonus')}
-      {toggle('unvisited', 'flag', 'Jen nezabrané')}
+      <div className="select-row">
+        <select value={filters.category} onChange={setF('category')} aria-label="Kategorie">
+          <option value="">Kategorie</option>
+          {categories.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
+        </select>
+        <select value={filters.owner} onChange={setF('owner')} aria-label="Kdo místo drží">
+          <option value="">Kdokoli drží</option>
+          <option value="none">Nikdo nedrží</option>
+          {Object.entries(TEAMS).map(([id, t]) => <option key={id} value={id}>Drží {t.label}</option>)}
+        </select>
+      </div>
+      <div className="row-pair">
+        <label className="row">
+          <Icon name="star" />
+          <input type="range" min="0" max="100" step="5" value={filters.minPoints} onChange={(e) => setFilters({ ...filters, minPoints: +e.target.value })} aria-label="Minimum bodů" />
+          <b>{filters.minPoints}+</b>
+        </label>
+        <label className={`row km${position ? '' : ' off'}`}>
+          <Icon name="near_me" />
+          <input type="number" min="0" inputMode="numeric" placeholder="–" value={filters.maxKm} onChange={setF('maxKm')} disabled={!position} aria-label="Do kilometrů ode mě" />
+          <b>km</b>
+        </label>
+      </div>
+      <div className="toggle-row">
+        {toggle('nearStop', 'directions_bus', '≤ 500 m')}
+        {toggle('bonus', 'bolt', 'Bonus')}
+        {toggle('unvisited', 'flag', 'Nezabrané')}
+      </div>
       <div className="filter-foot">
         <button className="text-btn" onClick={() => setFilters(EMPTY_FILTERS)}><Icon name="restart_alt" /> Reset</button>
         <span className="count">{count}<small> / {pois.length}</small></span>
