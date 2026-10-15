@@ -10,6 +10,15 @@ CREATE TABLE IF NOT EXISTS players (
 ALTER TABLE players ADD COLUMN IF NOT EXISTS password_hash text;
 CREATE UNIQUE INDEX IF NOT EXISTS players_login_name ON players (lower(name)) WHERE password_hash IS NOT NULL;
 
+-- Odměny týdenních týmových questů (id = quest, jednou za kolo).
+CREATE TABLE IF NOT EXISTS quest_awards (
+  id text PRIMARY KEY,
+  season_id text NOT NULL,
+  team text NOT NULL CHECK (team IN ('hory', 'reky', 'lesy')),
+  points integer NOT NULL,
+  awarded_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS seasons (
   id text PRIMARY KEY,
   starts_at timestamptz NOT NULL,

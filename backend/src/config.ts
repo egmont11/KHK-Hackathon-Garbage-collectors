@@ -30,7 +30,9 @@ export const config = {
    */
   eventsEnabled: process.env.EVENTS !== "0",
   weeklyEventCount: num(process.env.WEEKLY_EVENT_COUNT, 3),
-  weeklyMultiplier: num(process.env.WEEKLY_MULTIPLIER, 2),
+  weeklyMultiplier: num(process.env.WEEKLY_MULTIPLIER, 1),
+  /** Týdenní týmový quest: tým, jehož nejvíc hráčů místo během týdne zabralo, dostane tolik bodů. */
+  weeklyQuestReward: num(process.env.WEEKLY_QUEST_POINTS, 200),
   weeklyMinDistanceKm: num(process.env.WEEKLY_MIN_DISTANCE_KM, 50),
   weeklyPeriodSeconds: num(process.env.WEEKLY_EVENT_SECONDS, demoSeasonSeconds ? Math.max(60, Math.round(demoSeasonSeconds / 2)) : 7 * 86400),
   dailyMultiplier: num(process.env.DAILY_MULTIPLIER, 1.4),

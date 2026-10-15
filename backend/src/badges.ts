@@ -37,8 +37,8 @@ export const badgeDefinitions: BadgeDefinition[] = [
     id: "dobrodruh", name: "Dobrodruh", description: "Navštiv 3 místa dál než 2 km od zastávky", target: 3,
     progress: (context) => visitedPois(context).filter((poi) => (poi.nearest_stop?.distance_m ?? 0) > 2000).length,
   },
-  { id: "lovec-bonusu", name: "Lovec bonusů", description: "Navštiv 3 týdenní bonusová místa", target: 3, progress: ({ visits }) => visits.filter((visit) => visit.eventType === "weekly_poi").length },
-  { id: "bet", name: "Bet?", description: "Získej denní bonus 5×", target: 5, progress: ({ visits }) => visits.filter((visit) => visit.eventType === "daily_category").length },
+  { id: "lovec-bonusu", name: "Lovec bonusů", description: "Zaber 3 místa z týdenních questů", target: 3, progress: ({ visits }) => visits.filter((visit) => visit.eventType === "weekly_poi").length },
+  { id: "bet", name: "Bet?", description: "Splň denní quest 5×", target: 5, progress: ({ visits }) => visits.filter((visit) => visit.eventType === "daily_quest").length },
   { id: "prevrat", name: "Převrat", description: "Přeber místo pro svůj tým", target: 1, progress: ({ visits }) => visits.filter((visit) => visit.tookOver).length },
   { id: "ranni-ptace", name: "Ranní ptáče", description: "Check-in před 8:00", target: 1, progress: ({ visits }) => visits.filter((visit) => pragueHour(visit.at) < 8).length },
 ];

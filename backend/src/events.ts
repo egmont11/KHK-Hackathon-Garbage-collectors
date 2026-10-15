@@ -5,15 +5,16 @@ import { distanceM } from "./geo.js";
 import type { Coordinates, Poi } from "./types.js";
 
 /**
- * Quick time events (working name), the same for every player:
- * - weekly: a few bonus POIs at least WEEKLY_MIN_DISTANCE_KM apart, ×2,
- * - daily: one category of places (e.g. lookout towers), ×1.4 at every POI of that category.
+ * Questy:
+ * - weekly (týmový): pár míst aspoň WEEKLY_MIN_DISTANCE_KM od sebe, stejná pro všechny; vyhrává tým,
+ *   jehož nejvíc hráčů místo během týdne zabralo (vyhodnocení v server.ts, odměna WEEKLY_QUEST_POINTS),
+ * - daily (osobní): každý hráč má svou kategorii míst na den; první zabrané místo té kategorie ×1.4.
  * Picks are deterministic per round, so restarts and multiple instances agree without a scheduler.
  * When both apply to one POI, the higher multiplier wins (they don't stack).
  */
 
 export type WeeklyEvent = { id: string; type: "weekly_poi"; poiId: string; multiplier: number; startsAt: number; endsAt: number };
-export type DailyEvent = { id: string; type: "daily_category"; category: string; multiplier: number; startsAt: number; endsAt: number };
+export type DailyEvent = { id: string; type: "daily_quest"; category: string; multiplier: number; startsAt: number; endsAt: number };
 export type QuickEvent = WeeklyEvent | DailyEvent;
 export type Bonus = { multiplier: number; event: QuickEvent | null };
 
@@ -74,7 +75,6 @@ function uuidFrom(seed: string) {
 
 export class EventManager {
   private weeklyCache: { round: number; events: WeeklyEvent[] } | null = null;
-  private dailyCache: { round: number; event: DailyEvent | null } | null = null;
   private readonly weeklyCandidates: (Poi & Coordinates)[];
   private readonly dailyCategories: string[];
   readonly categoryLabels = new Map<string, string>();
@@ -117,41 +117,37 @@ export class EventManager {
     return events;
   }
 
-  daily(now = Date.now()): DailyEvent | null {
-    if (!config.eventsEnabled || !this.dailyCategories.length) return null;
-    const round = roundAt(now, config.dailyPeriodSeconds);
-    if (this.dailyCache?.round === round.index) return this.dailyCache.event;
-    const pick = (index: number) => {
-      const rand = seededRandom(`krajanek-daily-${index}-${config.dailyPeriodSeconds}`);
-      return this.dailyCategories[Math.floor(rand() * this.dailyCategories.length)];
-    };
-    let category = pick(round.index);
-    // Never the same category two rounds in a row.
-    if (this.dailyCategories.length > 1 && category === pick(round.index - 1)) {
-      category = this.dailyCategories[(this.dailyCategories.indexOf(category) + 1) % this.dailyCategories.length];
-    }
-    const event: DailyEvent = {
-      id: uuidFrom(`daily:${round.index}:${config.dailyPeriodSeconds}:${category}`), type: "daily_category", category,
-      multiplier: config.dailyMultiplier, startsAt: round.startsAt, endsAt: round.endsAt,
-    };
-    this.dailyCache = { round: round.index, event };
-    void this.persist([event]);
-    return event;
+  /** Globální denní bonus už není, denní quest je osobní (viz dailyFor). Zůstává kvůli statistikám/demo datům. */
+  daily(_now = Date.now()): DailyEvent | null {
+    return null;
+  }
+
+  /** Hranice týdenního kola, ve kterém leží `at`. */
+  weeklyRound(at = Date.now()) {
+    return roundAt(at, config.weeklyPeriodSeconds);
   }
 
   active(now = Date.now()): QuickEvent[] {
-    const daily = this.daily(now);
-    return [...this.weekly(now), ...(daily ? [daily] : [])];
+    return this.weekly(now);
   }
 
-  /** Best bonus for a check-in at this POI right now. */
-  bonusFor(poi: Poi, now = Date.now()): Bonus {
-    let best: Bonus = { multiplier: 1, event: null };
-    for (const event of this.active(now)) {
-      const applies = event.type === "weekly_poi" ? event.poiId === poi.id : event.category === poi.category;
-      if (applies && event.multiplier > best.multiplier) best = { multiplier: event.multiplier, event };
-    }
-    return best;
+  /** Osobní denní quest hráče: kategorie odvozená z hráče a dne (stejná po restartu). */
+  dailyFor(playerId: string, now = Date.now()): DailyEvent | null {
+    if (!config.eventsEnabled || !this.dailyCategories.length) return null;
+    const round = roundAt(now, config.dailyPeriodSeconds);
+    const rand = seededRandom(`krajanek-daily-${round.index}-${config.dailyPeriodSeconds}-${playerId}`);
+    const category = this.dailyCategories[Math.floor(rand() * this.dailyCategories.length)];
+    return {
+      id: uuidFrom(`daily:${round.index}:${config.dailyPeriodSeconds}:${playerId}`), type: "daily_quest", category,
+      multiplier: config.dailyMultiplier, startsAt: round.startsAt, endsAt: round.endsAt,
+    };
+  }
+
+  /** Týdenní quest na tomto místě (bez násobku), nebo osobní denní quest hráče (×1.4, jen dokud není splněný). */
+  bonusFor(poi: Poi, now = Date.now(), daily: DailyEvent | null = null): Bonus {
+    if (daily && daily.category === poi.category) return { multiplier: daily.multiplier, event: daily };
+    const weekly = this.weekly(now).find((event) => event.poiId === poi.id);
+    return weekly ? { multiplier: weekly.multiplier, event: weekly } : { multiplier: 1, event: null };
   }
 
   private async persist(events: QuickEvent[]) {
@@ -160,7 +156,7 @@ export class EventManager {
       for (const event of events) await this.pool.query(
         `INSERT INTO events (id, type, poi_id, category, starts_at, ends_at, multiplier) VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (id) DO NOTHING`,
-        [event.id, event.type, event.type === "weekly_poi" ? event.poiId : null, event.type === "daily_category" ? event.category : null,
+        [event.id, event.type, event.type === "weekly_poi" ? event.poiId : null, event.type === "daily_quest" ? event.category : null,
           new Date(event.startsAt).toISOString(), new Date(event.endsAt).toISOString(), event.multiplier],
       );
     } catch (error) {

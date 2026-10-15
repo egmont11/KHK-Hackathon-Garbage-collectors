@@ -134,33 +134,47 @@ try {
   assert.ok(owned.includes(battlePoi.properties.id));
   assert.ok((await api("/api/teams")).body.find((t: any) => t.team === "reky").owned_pois >= 1);
 
-  // Quick time events: 3 weekly bonus places ≥ 50 km apart (×2) and one daily category challenge (×1.4).
-  const events = (await api("/api/events/active")).body;
+  // Questy: 3 týdenní týmová místa ≥ 50 km od sebe (bez násobku, odměna týmu) a osobní denní quest (×1.4).
+  const events = (await api("/api/events/active", { token })).body;
   assert.equal(events.weekly.length, 3);
-  assert.ok(events.weekly.every((e: any) => e.multiplier === 2));
+  assert.ok(events.weekly.every((e: any) => e.multiplier === 1 && e.reward === 200 && e.players && "leader" in e));
   const km = (a: any, b: any) => { const r = Math.PI / 180, h = Math.sin((b.lat - a.lat) * r / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin((b.lon - a.lon) * r / 2) ** 2; return 12742 * Math.asin(Math.sqrt(h)); };
   for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) assert.ok(km(events.weekly[i], events.weekly[j]) >= 50, "weekly places 50 km apart");
-  assert.equal(events.daily.type, "daily_category");
+  assert.equal(events.daily.type, "daily_quest");
   assert.equal(events.daily.multiplier, 1.4);
+  assert.equal(events.daily.completed, false);
+  assert.equal((await api("/api/events/active")).body.daily, null, "daily quest is personal (needs a token)");
 
-  // A check-in at a place of the daily category earns ×1.4.
+  // Denní quest: první místo kategorie ×1.4, pak je splněný a další místo už bonus nemá.
   const weeklyIds = new Set(events.weekly.map((e: any) => e.poi_id));
-  const dailyPoi = (await api(`/api/poi?lite=1&category=${events.daily.category}`)).body.features.find((f: any) => !weeklyIds.has(f.properties.id));
-  assert.equal(dailyPoi.properties.event_type, "daily_category");
+  const dailyPois = (await api(`/api/poi?lite=1&category=${events.daily.category}`)).body.features
+    .filter((f: any) => !weeklyIds.has(f.properties.id) && f.properties.id !== poi.properties.id && f.properties.id !== battlePoi.properties.id);
+  const dailyPoi = dailyPois[0];
   const [dLon, dLat] = dailyPoi.geometry.coordinates;
   const dStart = await api("/api/checkins/start", { method: "POST", token, json: { poi_id: dailyPoi.properties.id, lat: dLat, lon: dLon, accuracy_m: 10 } });
   assert.equal(dStart.body.multiplier, 1.4);
   for (let i = 0; i < 4; i++) { await sleep(1100); await api(`/api/checkins/${dStart.body.checkin_id}/ping`, { method: "POST", token, json: { lat: dLat, lon: dLon, accuracy_m: 10 } }); }
   const dFinish = await api(`/api/checkins/${dStart.body.checkin_id}/finish`, { method: "POST", token });
   assert.equal(dFinish.body.awarded_points, Math.round(dailyPoi.properties.points * 1.4));
-  assert.equal(dFinish.body.event_type, "daily_category");
+  assert.equal(dFinish.body.event_type, "daily_quest");
+  assert.equal((await api("/api/events/active", { token })).body.daily.completed, true);
+  if (dailyPois[1]) {
+    const [sLon, sLat] = dailyPois[1].geometry.coordinates;
+    assert.equal((await api("/api/checkins/start", { method: "POST", token, json: { poi_id: dailyPois[1].properties.id, lat: sLat, lon: sLon, accuracy_m: 10 } })).body.multiplier, 1, "daily quest only once a day");
+  }
 
-  // And at a weekly bonus place ×2.
+  // Týdenní quest: normální body, počítá se hráč za tým.
   const weekly = events.weekly[0];
   const wStart = await api("/api/checkins/start", { method: "POST", token, json: { poi_id: weekly.poi_id, lat: weekly.lat, lon: weekly.lon, accuracy_m: 10 } });
   for (let i = 0; i < 4; i++) { await sleep(1100); await api(`/api/checkins/${wStart.body.checkin_id}/ping`, { method: "POST", token, json: { lat: weekly.lat, lon: weekly.lon, accuracy_m: 10 } }); }
   const wFinish = await api(`/api/checkins/${wStart.body.checkin_id}/finish`, { method: "POST", token });
-  assert.equal(wFinish.body.awarded_points, weekly.bonus_points);
+  assert.equal(wFinish.body.awarded_points, weekly.base_points);
+  assert.equal(wFinish.body.event_type, "weekly_poi");
+  const standing = (await api("/api/events/active")).body.weekly.find((e: any) => e.poi_id === weekly.poi_id);
+  assert.equal(standing.players.lesy, 1);
+  assert.equal(standing.leader, "lesy");
+  const top = (await api("/api/players/top")).body;
+  assert.ok(top.length >= 1 && top[0].points > 0 && top.every((row: any, i: number) => i === 0 || top[i - 1].points >= row.points), "top players sorted");
   const dashboard = await fetch(`${base}/dashboard`);
   assert.ok((await dashboard.text()).includes("dashboard kraje"));
   console.log("✔ smoke test passed");

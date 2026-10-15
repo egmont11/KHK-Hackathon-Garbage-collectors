@@ -65,9 +65,10 @@ All errors are `{"error": {"code", "message"}}`. Check-in endpoints need `Author
 | `POST /api/checkins/:id/ping` `{lat, lon, accuracy_m}` | every ~5 s → `{elapsed_s, remaining_s, valid, can_finish, distance_m, reason}`; `reason` is `OUT_OF_RANGE`, `LOW_ACCURACY` or `TOO_FAST`. |
 | `POST /api/checkins/:id/finish` | empty body OK → `{awarded_points, base_points, multiplier, team, team_score}` |
 | `GET /api/teams` | `[{team, name, color, score, members, owned_pois}]` for the current season |
+| `GET /api/players/top?limit=10` | top players of the current season: `[{player_id, name, team, points, places}]` |
 | `GET /api/seasons/current` | `{season_id, starts_at, ends_at, remaining_s}` |
 | `GET /api/seasons/history` | finished seasons, newest first |
-| `GET /api/events/active` | `{weekly: [{poi_id, poi_name, category_label, municipality, lat, lon, multiplier, base_points, bonus_points, starts_at, ends_at}], daily: {title, category, category_label, poi_count, multiplier, starts_at, ends_at}}` |
+| `GET /api/events/active` | `{weekly: [{poi_id, poi_name, …, reward, players: {hory, reky, lesy}, leader}], daily: {category, category_label, multiplier, completed, …} (personal, needs player token, else null), last_week: [{poi_id, poi_name, reward, players, leader}]}`. Weekly team quests: the team with most players claiming the place during the week wins `reward` (default 200) for the season, settled lazily after the week; ties go to the team that got there first. Daily quest is personal: first place of the category that day ×1.4 |
 
 ### Admin (region staff)
 

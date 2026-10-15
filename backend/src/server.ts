@@ -128,10 +128,59 @@ function liveState(poi: Poi, seasonId = seasons.current().id) {
     top_team: ownership?.topTeam ?? null,
     last_team: store.latestTeam(poi.id),
     visits: store.visitCount(poi.id),
-    event_multiplier: bonus.event ? bonus.multiplier : null,
+    // Týdenní quest nemá násobek (soutěží se o počet hráčů týmu), proto event_multiplier jen u skutečného bonusu.
+    event_multiplier: bonus.event && bonus.multiplier > 1 ? bonus.multiplier : null,
     event_type: bonus.event?.type ?? null,
-    bonus_points: bonus.event ? Math.round(poi.points * bonus.multiplier) : null,
+    quest: bonus.event?.type === "weekly_poi",
+    bonus_points: bonus.event && bonus.multiplier > 1 ? Math.round(poi.points * bonus.multiplier) : null,
   };
+}
+
+// --- Questy ---
+type DailyQuest = NonNullable<ReturnType<typeof events.dailyFor>>;
+
+/** Osobní denní quest hráče a jestli už je dnes splněný. */
+function dailyQuestOf(player: Player, seasonId: string, now = Date.now()) {
+  const quest = events.dailyFor(player.id, now);
+  if (!quest) return null;
+  const done = store.visitedBy(player.id, seasonId).find((visit) => visit.eventType === "daily_quest" && visit.at >= quest.startsAt && visit.at < quest.endsAt);
+  return { quest, done: done ?? null };
+}
+
+/** Denní quest, který se ještě dá splnit (null = žádný nebo už splněný). */
+function openDailyQuest(player: Player, seasonId: string, now = Date.now()): DailyQuest | null {
+  const daily = dailyQuestOf(player, seasonId, now);
+  return daily && !daily.done ? daily.quest : null;
+}
+
+/** Stav týdenního questu: kolik hráčů z každého týmu místo v týdnu zabralo; při shodě vede, kdo to stihl dřív. */
+function questStandings(poiId: string, startsAt: number, endsAt: number) {
+  const players: Record<TeamId, number> = { hory: 0, reky: 0, lesy: 0 };
+  const reachedAt: Record<TeamId, number> = { hory: Infinity, reky: Infinity, lesy: Infinity };
+  for (const visit of store.visits) {
+    if (visit.poiId !== poiId || visit.at < startsAt || visit.at >= endsAt) continue;
+    players[visit.team]++;
+    reachedAt[visit.team] = visit.at;
+  }
+  const leader = teamIds
+    .filter((team) => players[team] > 0)
+    .sort((a, b) => players[b] - players[a] || reachedAt[a] - reachedAt[b])[0] ?? null;
+  return { players, leader };
+}
+
+/** Vyhodnotí týdenní questy minulého kola (líně, při čtení): vítěz každého místa dostane body do sezóny. */
+async function settleWeeklyQuests(season: { id: string; startsAt: number }, now = Date.now()) {
+  if (!config.eventsEnabled || config.weeklyQuestReward <= 0) return;
+  // Pár posledních kol (kdyby celé kolo nepřišel žádný požadavek); dvojímu připsání brání addQuestReward.
+  let round = events.weeklyRound(now);
+  for (let back = 0; back < 4; back++) {
+    round = events.weeklyRound(round.startsAt - 1);
+    if (round.endsAt <= season.startsAt) break; // kolo skončilo ještě v minulé sezóně
+    for (const quest of events.weekly(round.startsAt)) {
+      const { leader } = questStandings(quest.poiId, quest.startsAt, quest.endsAt);
+      if (leader) await store.addQuestReward(`weekly:${quest.id}`, season.id, leader, config.weeklyQuestReward);
+    }
+  }
 }
 
 function publicEvent(event: QuickEvent) {
@@ -139,7 +188,7 @@ function publicEvent(event: QuickEvent) {
     id: event.id, type: event.type, multiplier: event.multiplier,
     starts_at: new Date(event.startsAt).toISOString(), ends_at: new Date(event.endsAt).toISOString(),
   };
-  if (event.type === "daily_category") {
+  if (event.type === "daily_quest") {
     return {
       ...common, category: event.category,
       category_label: events.categoryLabels.get(event.category) ?? event.category,
@@ -153,19 +202,31 @@ function publicEvent(event: QuickEvent) {
     poi_name: poi?.name ?? null, category: poi?.category ?? null, category_label: poi?.category_label ?? poi?.category ?? null,
     municipality: poi?.municipality ?? null, lat: point?.lat ?? null, lon: point?.lon ?? null,
     base_points: poi?.points ?? 0, bonus_points: Math.round((poi?.points ?? 0) * event.multiplier),
+    reward: config.weeklyQuestReward,
+    ...questStandings(event.poiId, event.startsAt, event.endsAt),
   };
 }
 
-/** Active events grouped the way the app shows them. */
-function activeEvents(now = Date.now()) {
+/** Questy: týdenní týmové (stejné pro všechny), osobní denní (jen s hráčským tokenem), výsledky minulého týdne. */
+function activeEvents(player: Player | undefined, seasonId: string, now = Date.now()) {
   const weekly = events.weekly(now).map(publicEvent);
-  const daily = events.daily(now);
-  return { weekly, daily: daily ? publicEvent(daily) : null };
+  const daily = player ? dailyQuestOf(player, seasonId, now) : null;
+  const previous = events.weeklyRound(events.weeklyRound(now).startsAt - 1);
+  const lastWeek = events.weekly(previous.startsAt).map((quest) => {
+    const poi = pois.get(quest.poiId);
+    return { poi_id: quest.poiId, poi_name: poi?.name ?? null, reward: config.weeklyQuestReward, ...questStandings(quest.poiId, quest.startsAt, quest.endsAt) };
+  });
+  return {
+    weekly,
+    daily: daily ? { ...publicEvent(daily.quest), completed: !!daily.done, completed_points: daily.done?.points ?? null } : null,
+    last_week: lastWeek,
+  };
 }
 
 async function syncSeason() {
   const current = seasons.current();
   await store.ensureSeasons(current, store.history);
+  await settleWeeklyQuests(current);
   return current;
 }
 
@@ -328,6 +389,10 @@ app.get("/api/players/me", async (request, reply) => {
     visited: visited.map((visit) => ({ poi_id: visit.poiId, points: visit.points, at: new Date(visit.at).toISOString(), event_type: visit.eventType })),
     // Current season: every badge with progress. Earlier seasons: archive of earned badges.
     badges: badgesFor(visited, pois),
+    daily_quest: (() => {
+      const daily = dailyQuestOf(player, season.id);
+      return daily ? { ...publicEvent(daily.quest), completed: !!daily.done, completed_points: daily.done?.points ?? null } : null;
+    })(),
     badge_archive: store.seasonsOf(player.id)
       .filter((seasonId) => seasonId !== season.id)
       .map((seasonId) => ({ season_id: seasonId, badges: badgesFor(store.visitedBy(player.id, seasonId), pois).filter((badge) => badge.earned) }))
@@ -364,7 +429,7 @@ app.post<{ Body: { poi_id?: string; lat?: number; lon?: number; accuracy_m?: num
   };
   await store.recordCheckinStart(checkin, checkin.pings[0]);
   store.checkins.set(checkin.id, checkin);
-  const bonus = events.bonusFor(poi, timestamp);
+  const bonus = events.bonusFor(poi, timestamp, openDailyQuest(player, season.id, timestamp));
   const multiplier = bonus.multiplier;
   if (bonus.event) startBonuses.set(checkin.id, bonus);
   return reply.code(201).send({
@@ -433,7 +498,7 @@ app.post<{ Params: { id: string } }>("/api/checkins/:id/finish", async (request,
   if (season.id !== checkin.seasonId) return fail(reply, 409, "SEASON_CHANGED", "Sezóna se během check-inu změnila. Začněte znovu.");
   if (store.hasVisited(player.id, checkin.poiId, season.id)) return fail(reply, 409, "ALREADY_VISITED", "Toto místo už jste v této sezóně obsadili.");
   const poi = pois.get(checkin.poiId)!;
-  const nowBonus = events.bonusFor(poi, now);
+  const nowBonus = events.bonusFor(poi, now, openDailyQuest(player, season.id, now));
   const startBonus = startBonuses.get(checkin.id);
   const bonus = startBonus && startBonus.multiplier > nowBonus.multiplier ? startBonus : nowBonus;
   const multiplier = bonus.multiplier;
@@ -454,9 +519,23 @@ app.post<{ Params: { id: string } }>("/api/checkins/:id/finish", async (request,
 
 app.get("/api/teams", async () => teamTable((await syncSeason()).id));
 
+/** Nejlepší hráči aktuální sezóny (jméno, tým, body, počet míst). */
+app.get<{ Querystring: { limit?: string } }>("/api/players/top", async (request) => {
+  const season = await syncSeason();
+  const limit = Math.min(Math.max(Number(request.query.limit) || 10, 1), 50);
+  return [...store.players.values()]
+    .map((player) => {
+      const visits = store.visitedBy(player.id, season.id);
+      return { player_id: player.id, name: player.name, team: player.team, points: visits.reduce((sum, visit) => sum + visit.points, 0), places: visits.length };
+    })
+    .filter((row) => row.points > 0)
+    .sort((a, b) => b.points - a.points || b.places - a.places || a.name.localeCompare(b.name, "cs"))
+    .slice(0, limit);
+});
+
 app.get("/api/seasons/current", async () => publicSeason(await syncSeason()));
 app.get("/api/seasons/history", async () => { await syncSeason(); return seasons.history(); });
-app.get("/api/events/active", async () => activeEvents());
+app.get("/api/events/active", async (request) => activeEvents(bearerPlayer(request), (await syncSeason()).id));
 
 type StatsQuery = { from?: string; to?: string; season?: string; top?: string };
 
@@ -641,7 +720,7 @@ app.get<{ Querystring: StatsQuery }>("/api/dashboard", { preHandler: requireAdmi
     season: publicSeason(season),
     teams: teamTable(season.id),
     history: seasons.history().slice(0, 5),
-    events: activeEvents(),
+    events: activeEvents(undefined, season.id),
     stats,
   };
 });

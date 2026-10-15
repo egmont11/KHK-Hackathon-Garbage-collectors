@@ -23,6 +23,8 @@ export class MemoryStore {
   readonly scores = new Map<string, Map<TeamId, number>>();
   readonly visits: Visit[] = [];
   readonly history: SeasonResult[] = [];
+  /** Už vyplacené odměny questů (klíč = id questu), ať se nepřipíšou dvakrát. */
+  private readonly questRewards = new Set<string>();
   /** Season still running according to PostgreSQL, so a restart resumes it. */
   resumeSeason: Season | null = null;
   private readonly used = new Set<string>();
@@ -50,6 +52,8 @@ export class MemoryStore {
       id: row.id, name: row.name, team: row.team as TeamId, token: row.token, createdAt: new Date(row.created_at).getTime(),
       passwordHash: row.password_hash ?? null,
     });
+    const rewards = await this.pool.query("SELECT id FROM quest_awards");
+    for (const row of rewards.rows) this.questRewards.add(row.id);
     const scores = await this.pool.query("SELECT season_id, team, score FROM team_scores");
     for (const row of scores.rows) {
       const seasonScores = this.scores.get(row.season_id) ?? new Map<TeamId, number>();
@@ -221,6 +225,25 @@ export class MemoryStore {
     season.set(playerId, list);
     this.playerVisits.set(seasonId, season);
     return visit;
+  }
+
+  /** Odměna za quest pro tým (jednou na klíč, i po restartu s DB). Vrací, jestli se připsala. */
+  async addQuestReward(key: string, seasonId: string, team: TeamId, points: number): Promise<boolean> {
+    if (this.questRewards.has(key)) return false;
+    this.questRewards.add(key);
+    if (this.pool) {
+      const inserted = await this.pool.query(
+        "INSERT INTO quest_awards (id, season_id, team, points) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING RETURNING id",
+        [key, seasonId, team, points],
+      );
+      if (inserted.rowCount !== 1) return false;
+      await this.pool.query(`
+        INSERT INTO team_scores (season_id, team, score, updated_at) VALUES ($1, $2, $3, now())
+        ON CONFLICT (season_id, team) DO UPDATE SET score = team_scores.score + EXCLUDED.score, updated_at = EXCLUDED.updated_at
+      `, [seasonId, team, points]);
+    }
+    this.addScore(seasonId, team, points);
+    return true;
   }
 
   private addScore(seasonId: string, team: TeamId, points: number) {
