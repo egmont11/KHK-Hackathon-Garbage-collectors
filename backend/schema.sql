@@ -11,8 +11,10 @@ CREATE TABLE IF NOT EXISTS seasons (
   id text PRIMARY KEY,
   starts_at timestamptz NOT NULL,
   ends_at timestamptz NOT NULL,
+  ranking jsonb,
   CHECK (ends_at > starts_at)
 );
+ALTER TABLE seasons ADD COLUMN IF NOT EXISTS ranking jsonb;
 
 CREATE TABLE IF NOT EXISTS checkins (
   id uuid PRIMARY KEY,
