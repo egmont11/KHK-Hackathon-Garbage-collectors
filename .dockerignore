@@ -11,3 +11,6 @@ docs
 Claude outputs
 *.zip
 .env
+
+**/.admin-initial-password
+.env.*

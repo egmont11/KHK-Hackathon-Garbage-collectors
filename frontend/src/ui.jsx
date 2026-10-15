@@ -5,7 +5,7 @@ export const Icon = ({ name, fill }) => (
   <span className={`material-symbols-rounded${fill ? ' fill' : ''}`} aria-hidden="true">{name}</span>
 )
 
-export const DEMO = new URLSearchParams(location.search).has('demo')
+export { DEMO } from './mode.js'
 
 export const go = (page, id) => { location.hash = id ? `/${page}/${encodeURIComponent(id)}` : `/${page}` }
 // Zpět z podstránky vede vždy na mapu.

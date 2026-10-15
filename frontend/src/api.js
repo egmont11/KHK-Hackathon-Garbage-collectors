@@ -1,6 +1,6 @@
 // Klient pro REST API backendu (kontrakt 1.2, detaily v backend/README.md).
 // Výchozí je backend přes Vite proxy (/api -> localhost:3001). VITE_API_URL přepíše adresu
-// backendu, VITE_MOCK=1 (nebo ?mock v URL) spustí mock v prohlížeči (localStorage) se stejným rozhraním.
+// backendu, VITE_MOCK=1 (nebo ?mock=1 při vývoji) spustí mock v prohlížeči (localStorage) se stejným rozhraním.
 //
 // Rozhraní, které čte UI (real i mock):
 //   loadPois()            -> GeoJSON features (statické vlastnosti; živý stav je v api.live())
@@ -8,10 +8,15 @@
 //   api.me()              -> { player_id, name, team, season_id, season_points, visited: [{poi_id, points, at}], badges, badge_archive }
 //   api.poiDetail(id)     -> detail z /api/poi/:id (owner_team, team_checkins, visits, last_visited_at, nearest_*_stop, idos_url, event)
 //   api.startCheckin / ping / finish, api.teams, api.currentSeason, api.seasonHistory, api.activeEvents, api.createPlayer({name, team, password}), api.login({name, password})
+import { usingMock, storageKey } from './mode.js'
+export { usingMock } from './mode.js'
 import { distanceM } from './geo.js'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
-export const usingMock = import.meta.env.VITE_MOCK === '1' || new URLSearchParams(location.search).has('mock')
+const apiOrigin = new URL(API_URL || location.origin, location.origin)
+if (import.meta.env.PROD && apiOrigin.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(apiOrigin.hostname)) {
+  throw new Error('Production VITE_API_URL requires HTTPS.')
+}
 
 // Stav spojení s backendem: App ukazuje lištu „server nedostupný“.
 export const connection = new EventTarget()
@@ -42,7 +47,7 @@ export async function loadStops() {
 
 // --- Real API ---
 async function http(method, path, body) {
-  const token = localStorage.getItem('krajanek-token')
+  const token = localStorage.getItem(storageKey('token'))
   let res
   try {
     res = await fetch(`${API_URL}${path}`, {
@@ -72,6 +77,7 @@ const LIVE_FIELDS = ['owner_team', 'top_team', 'event_multiplier', 'event_type',
 const real = {
   createPlayer: (body) => http('POST', '/api/players', body),
   login: (body) => http('POST', '/api/players/login', body),
+  logout: () => http('POST', '/api/players/logout'),
   me: () => http('GET', '/api/players/me'),
   startCheckin: (body) => http('POST', '/api/checkins/start', body),
   ping: (id, body) => http('POST', `/api/checkins/${id}/ping`, body),
@@ -125,7 +131,7 @@ function randomId() {
   return [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 const save = (s) => localStorage.setItem(KEY, JSON.stringify(s))
-const mePlayer = (s) => s.players[localStorage.getItem('krajanek-token')]
+const mePlayer = (s) => s.players[localStorage.getItem(storageKey('token'))]
 const fail = (code, message) => { throw Object.assign(new Error(message), { code }) }
 const doneCheckins = (s) => Object.values(s.checkins).filter((c) => c.awarded_points)
 
@@ -135,6 +141,7 @@ async function bonusFor(poiId) {
 }
 
 const mock = {
+  async logout() { return { ok: true } },
   // Mock účty jen pro vývoj bez backendu: heslo leží v localStorage tohoto prohlížeče.
   async createPlayer({ name, team, password }) {
     const s = load()
@@ -213,6 +220,8 @@ const mock = {
   async finish(id) {
     const s = load()
     const c = s.checkins[id]
+    if (!c || c.player_id !== mePlayer(s)?.player_id) fail('CHECKIN_NOT_FOUND', 'Check-in nebyl nalezen.')
+    if (c.awarded_points) fail('CHECKIN_FINISHED', 'Check-in už skončil.')
     const elapsed = c.runStart ? (c.pings[c.pings.length - 1].ts - c.runStart) / 1000 : 0
     if (elapsed < RULES.required_s) fail('CHECKIN_INCOMPLETE', `Ještě nemáš ${RULES.required_s} s (${Math.floor(elapsed)} s).`)
     const poi = (await loadPois()).find((f) => f.properties.id === c.poi_id)

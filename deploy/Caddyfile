@@ -1,15 +1,19 @@
-# Caddy uvnitř kontejneru poslouchá jen HTTP na :80; ven se mapuje přes PORT v docker-compose.yml.
-# HTTPS (nutné pro GPS a PWA na telefonech) zajišťuje proxy před serverem (Coolify apod.).
-:80 {
+# A public DNS name is required. Caddy provisions and renews the TLS certificate.
+{$SITE_ADDRESS} {
 	encode zstd gzip
-
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Strict-Transport-Security "max-age=31536000"
+	}
 	@backend path /api/* /dashboard /dashboard/* /vendor/* /health
 	handle @backend {
 		reverse_proxy backend:3001
 	}
-
 	handle {
 		root * /srv
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self' https://*.tile.openstreetmap.org; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		@fresh path /sw.js /registerSW.js /index.html /manifest.webmanifest
 		header @fresh Cache-Control "no-cache"
 		@assets path /assets/*

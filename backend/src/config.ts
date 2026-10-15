@@ -3,13 +3,29 @@ const num = (value: string | undefined, fallback: number) => {
   return value !== undefined && value !== "" && Number.isFinite(parsed) ? parsed : fallback;
 };
 
-// `npm run demo` (--demo): výchozí hodnoty pro prezentaci – check-in 10 s, admin/admin bez vynucené změny hesla.
+// --demo is isolated in memory, with a shorter check-in and synthetic visits.
 // Proměnné prostředí mají vždy přednost.
 const demoMode = process.argv.includes("--demo");
+const production = process.env.NODE_ENV === "production";
+if (demoMode && (production || process.env.DATABASE_URL || process.env.PGHOST)) throw new Error("Demo requires an isolated in-memory development server.");
+const positive = (key: string, fallback: number) => {
+  const value = num(process.env[key], fallback);
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`${key} must be a positive integer`);
+  return value;
+};
 const demoSeasonSeconds = process.env.DEMO_SEASON_SECONDS ? num(process.env.DEMO_SEASON_SECONDS, 0) || null : null;
 
 export const config = {
-  host: process.env.HOST ?? "0.0.0.0",
+  host: process.env.HOST ?? "127.0.0.1",
+  demoMode,
+  production,
+  trustedProxies: process.env.TRUSTED_PROXIES?.split(",").map((value) => value.trim()).filter(Boolean) ?? [],
+  corsOrigins: process.env.CORS_ORIGINS?.split(",").map((value) => value.trim()).filter(Boolean) ?? [],
+  requireHttps: production,
+  playerSessionHours: positive("PLAYER_SESSION_HOURS", 24 * 7),
+  maxPlayers: positive("MAX_PLAYERS", 10_000),
+  registrationLimit: positive("REGISTRATIONS_PER_HOUR", 5),
+  adminPasswordFile: process.env.ADMIN_PASSWORD_FILE ?? ".admin-initial-password",
   port: num(process.env.PORT, 3001),
   poiFile: process.env.POI_FILE ?? "../data/poi.geojson",
   checkinRadiusM: num(process.env.CHECKIN_RADIUS_M, 100),
@@ -41,14 +57,18 @@ export const config = {
   demoSeedVisits: num(process.env.DEMO_SEED, demoMode ? 800 : 0),
   /** Built-in administrator for the region dashboard / statistics. */
   adminUsername: process.env.ADMIN_USERNAME ?? "admin",
-  adminInitialPassword: process.env.ADMIN_PASSWORD || (demoMode ? "admin" : null),
+  adminInitialPassword: process.env.ADMIN_PASSWORD || null,
   /** ADMIN_RESET=1 resets the built-in admin's password on startup (lost password). */
   adminReset: process.env.ADMIN_RESET === "1",
   /** ADMIN_MUST_CHANGE=0 skips the forced password change (handy for repeated in-memory demos). */
-  adminMustChange: process.env.ADMIN_MUST_CHANGE ? process.env.ADMIN_MUST_CHANGE !== "0" : !demoMode,
+  adminMustChange: process.env.ADMIN_MUST_CHANGE !== "0",
   adminSessionHours: num(process.env.ADMIN_SESSION_HOURS, 12),
   adminMinPasswordLength: 10,
 } as const;
+
+if (production && (config.requiredCheckinSeconds < 60 || config.checkinRadiusM > 100 || config.maxAccuracyM > 50 || config.demoSeasonSeconds !== null || config.demoSeedVisits > 0)) {
+  throw new Error("Production game rules cannot enable demo shortcuts");
+}
 
 export const teams = {
   hory: { name: "Hory", color: "#C2412F" },

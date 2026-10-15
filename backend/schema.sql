@@ -86,3 +86,9 @@ ALTER TABLE events ADD COLUMN IF NOT EXISTS category text;
 
 -- Which quick time event (if any) applied to a check-in; used for badges.
 ALTER TABLE checkins ADD COLUMN IF NOT EXISTS event_type text;
+
+-- Legacy bearer credentials expire immediately. New credentials are random 256-bit values;
+-- only their SHA-256 digest is stored in token. Existing player identities/scores stay intact.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS token_expires_at timestamptz NOT NULL DEFAULT now();
+UPDATE players SET token = 'revoked:' || id::text WHERE token !~ '^[a-f0-9]{64}$' AND token NOT LIKE 'revoked:%';
+CREATE UNIQUE INDEX IF NOT EXISTS admins_login_name ON admins (lower(username));

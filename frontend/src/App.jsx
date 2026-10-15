@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import MapView from './MapView.jsx'
+import { storageKey } from './mode.js'
 import { api } from './api.js'
 import { CheckinOverlay } from './checkin.jsx'
 import { InstallGuide, isStandalone } from './install.jsx'
@@ -25,18 +26,19 @@ function useRoute() {
 }
 
 function loadPlayer() {
-  try { return JSON.parse(localStorage.getItem('krajanek-player')) } catch { return null }
+  try { return JSON.parse(localStorage.getItem(storageKey('player'))) } catch { return null }
 }
 
 function clearPlayer() {
-  localStorage.removeItem('krajanek-player')
-  localStorage.removeItem('krajanek-token')
-  localStorage.removeItem('krajanek-checkin')
+  localStorage.removeItem(storageKey('player'))
+  localStorage.removeItem(storageKey('token'))
+  localStorage.removeItem(storageKey('checkin'))
 }
 
 export default function App() {
   const [player, setPlayer] = useState(loadPlayer)
   const [kicked, setKicked] = useState(false)
+  const [logoutError, setLogoutError] = useState(null)
   // Backend token nezná (restart v paměťovém režimu, token z mocku) -> znovu onboarding.
   useEffect(() => {
     const onUnauthorized = () => {
@@ -48,14 +50,18 @@ export default function App() {
     window.addEventListener('krajanek-unauthorized', onUnauthorized)
     return () => window.removeEventListener('krajanek-unauthorized', onUnauthorized)
   }, [])
-  const logout = () => {
+  const logout = async () => {
+    try { await api.logout() } catch (error) {
+      if (error.status !== 401) { setLogoutError(error.message); return }
+    }
+    setLogoutError(null)
     clearPlayer()
     setKicked(false)
     setPlayer(null)
     go('')
   }
   if (!player) return <Onboarding kicked={kicked} onDone={(p) => { setKicked(false); setPlayer(p) }} />
-  return <Game player={player} onLogout={logout} />
+  return <><Game player={player} onLogout={logout} />{logoutError && <div className="banner" role="alert">Odhlášení selhalo: {logoutError}</div>}</>
 }
 
 function Game({ player, onLogout }) {
@@ -328,8 +334,8 @@ function Onboarding({ onDone, kicked }) {
 
   function finish({ player_id, token, name: n, team: t }) {
     const player = { player_id, name: n, team: t }
-    localStorage.setItem('krajanek-token', token)
-    localStorage.setItem('krajanek-player', JSON.stringify(player))
+    localStorage.setItem(storageKey('token'), token)
+    localStorage.setItem(storageKey('player'), JSON.stringify(player))
     // Návod na přidání na plochu, pokud appka neběží z plochy.
     if (isStandalone()) return onDone(player)
     setDonePlayer(player)

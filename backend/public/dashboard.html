@@ -273,7 +273,7 @@ footer a { color: inherit; }
     <input id="loginPass" name="password" type="password" autocomplete="current-password" required>
     <button class="primary" type="submit">Přihlásit</button>
     <div class="msg" id="loginMsg" role="alert"></div>
-    <p class="note">Výchozí heslo vypíše server do konzole při prvním spuštění.</p>
+    <p class="note">Počáteční heslo nastavuje správce serveru.</p>
   </form>
 </div>
 
@@ -296,7 +296,7 @@ footer a { color: inherit; }
 <script src="/vendor/leaflet.js"></script>
 <script src="/vendor/leaflet-heat.js"></script>
 <script>
-const API = new URLSearchParams(location.search).get("api") || "";
+const API = ""; // Credentials only ever go to this dashboard origin.
 const TEAM = { hory: "#C2412F", reky: "#2F5D9E", lesy: "#4A7A3A" };
 const fmt = new Intl.NumberFormat("cs-CZ");
 const $ = (id) => document.getElementById(id);
@@ -306,7 +306,7 @@ try { range = localStorage.getItem("dashRange") || "season"; } catch {}
 
 /* Tooltip */
 const tip = $("tip");
-function showTip(e, html) { tip.innerHTML = html; tip.style.left = e.clientX + "px"; tip.style.top = e.clientY + "px"; tip.style.opacity = 1; }
+function showTip(e, html) { tip.textContent = html; tip.style.left = e.clientX + "px"; tip.style.top = e.clientY + "px"; tip.style.opacity = 1; }
 function hideTip() { tip.style.opacity = 0; }
 document.addEventListener("mousemove", (e) => { const t = e.target.closest("[data-tip]"); t ? showTip(e, t.dataset.tip) : hideTip(); });
 

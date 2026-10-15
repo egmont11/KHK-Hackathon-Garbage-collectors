@@ -7,27 +7,27 @@ REST API + region dashboard, Fastify + TypeScript. What's done and what isn't: [
 ```powershell
 cd backend
 npm install
-npm run demo     # in-memory, 800 synthetic visits, 10 s check-in, dashboard login admin / admin
+npm run demo     # in-memory, 800 synthetic visits, 10 s check-in, private admin bootstrap file
 npm run dev      # in-memory, empty, auto-reload
 npm test         # end-to-end smoke test (onboarding → check-in → leaderboard → stats)
 ```
 
 - API: `http://localhost:3001/api/...`
-- Region dashboard: `http://localhost:3001/dashboard` (admin login; add `?api=http://host:3001` to point it elsewhere)
+- Region dashboard: `http://localhost:3001/dashboard` (admin login; API is always same-origin)
 
 ### Admin account
 
-On first start the server creates the built-in admin `admin` with a random password and **prints it to the console once**. The first login forces a password change (min. 10 characters, letters and digits); until then every admin endpoint answers `403 PASSWORD_CHANGE_REQUIRED`. With PostgreSQL the account and its changed password persist; in memory mode a new password is generated on every start.
+On first start the server creates the built-in `admin`. Set a strong `ADMIN_PASSWORD` (required in production). Local development without it writes a random password to `.admin-initial-password` with mode 0600; the password is never logged. The local credential file is reused across in-memory restarts and must stay private. Every configured initial password is validated, including when `ADMIN_MUST_CHANGE=0` is explicitly set.
 
-- Set your own initial password: `ADMIN_PASSWORD=...` (still has to be changed on first login).
-- Lost password: start once with `ADMIN_RESET=1` (prints a new one, or uses `ADMIN_PASSWORD`).
-- Repeated in-memory demo without the forced change: `ADMIN_PASSWORD=... ADMIN_MUST_CHANGE=0`.
+The first login requires a password change (at least 10 characters, letters and digits). `ADMIN_RESET=1` performs a deliberate one-time reset; remove it after use. Production refuses an existing legacy `admin/admin` account until that reset is performed with a strong secret.
+
+Admin sessions expire after 12 hours by default. They bind to the password hash used during login; password changes and deletion invalidate sessions on other backend instances as well. Authentication always reads current admin state from PostgreSQL when configured.
 
 ### Environment
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PORT`, `HOST` | `3001`, `0.0.0.0` | listen address |
+| `PORT`, `HOST` | `3001`, `127.0.0.1` | listen address |
 | `POI_FILE` | `../data/poi.geojson` | POI catalog |
 | `DATABASE_URL` | – | PostgreSQL; without it everything lives in memory |
 | `CHECKIN_SECONDS` | `60` | required continuous time at a POI (use `10` for the pitch) |
@@ -37,7 +37,7 @@ On first start the server creates the built-in admin `admin` with a random passw
 | `DAILY_MULTIPLIER` | `1.4` | daily bonus category |
 | `WEEKLY_EVENT_SECONDS`, `DAILY_EVENT_SECONDS` | 1 week, 1 day (½ and ⅙ of a demo season) | round lengths; full days start at midnight Prague time, weeks on Monday. `EVENTS=0` disables events |
 | `ADMIN_USERNAME` | `admin` | built-in admin login |
-| `ADMIN_PASSWORD` | random, printed | initial admin password |
+| `ADMIN_PASSWORD` | random private local file; required in production | initial admin password |
 | `ADMIN_RESET`, `ADMIN_MUST_CHANGE` | `0`, `1` | reset the built-in admin's password on start; require password change after first login |
 | `ADMIN_SESSION_HOURS` | `12` | admin session lifetime (sessions live in memory, a restart logs admins out) |
 | `DEMO_SEED` | `0` (`800` with `--demo`) | synthetic visits, memory mode only |
@@ -55,7 +55,7 @@ All errors are `{"error": {"code", "message"}}`. Check-in endpoints need `Author
 | Endpoint | Notes |
 |---|---|
 | `GET /api/poi` | GeoJSON. Filters: `bbox=w,s,e,n`, `category=a,b`, `group=a,b`, `min_points`, `max_points`, `near=lat,lon` (+ optional `radius_m`; adds `distance_m`, sorted by distance), `max_stop_m` (stop within N m). `lite=1` returns only id/name/category/group/municipality/points/is_nkp (much smaller payload). `bonus=1` returns only places with an active bonus; `owner=hory,reky,lesy,none` filters by owning team. Live props: `owner_team` (use this for the marker colour), `team_checkins` `{hory, reky, lesy}`, `team_points` `{hory, reky, lesy}` (points earned at the place this season), `top_team` (most points; tie keeps the leader), `last_team`, `visits`, `event_multiplier`, `event_type`, `bonus_points`. |
-| `GET /api/poi/:id` | Detail + `lat`, `lon`, `last_team`, `visits`, `last_visited_at`, `nearest_bus_stop`, `nearest_train_stop`, `idos_url`, `event`. |
+| `GET /api/poi/:id` | Detail + `lat`, `lon`, `last_team`, `visits`, `last_visited_at` (always null publicly), `nearest_bus_stop`, `nearest_train_stop`, `idos_url`, `event`. |
 | `GET /api/categories` | Groups and categories with labels and counts (for the filter UI). |
 | `POST /api/players` `{name, team, password}` | → `{player_id, token, name, team}`. Name unique (case-insensitive) → `409 NAME_TAKEN`; password ≥ 6 chars (scrypt hash) |
 | `POST /api/players/login` `{name, password}` | → `{player_id, token, name, team}` (same token as at registration). Wrong → `401 INVALID_CREDENTIALS`; 5 failures per IP → locked for 1 min (`429`) |
@@ -74,7 +74,7 @@ All errors are `{"error": {"code", "message"}}`. Check-in endpoints need `Author
 
 | Endpoint | Notes |
 |---|---|
-| `POST /api/admin/login` `{username, password}` | → `{token, expires_at, username, must_change_password}`. 5 failed attempts per IP → locked for 1 min (`429`). |
+| `POST /api/admin/login` `{username, password}` | → `{token, expires_at, username, must_change_password}`. 5 attempts per IP + username per minute, reserved before hashing (`429`). |
 | `POST /api/admin/password` `{current_password, new_password}` | allowed while a change is required; logs out the admin's other sessions |
 | `GET /api/admin/me`, `POST /api/admin/logout` | |
 | `GET /api/stats/poi?from=&to=&season=current&top=` (alias `/api/admin/stats`) | where people go: totals, coverage, `by_poi`, `by_category`, `by_group`, `by_orp`, `by_hour`, `by_day`, `by_hour_of_day`, `by_team`, `top_pois`, `heatmap` (`[lat, lon, count]`) |
@@ -117,3 +117,15 @@ All errors are `{"error": {"code", "message"}}`. Check-in endpoints need `Author
 ## Known data issue (for `build_poi.py`)
 
 About 100 POIs have an `orp_code` that is not a 4-digit ORP code (municipality codes like `574538`, NUTS codes like `CZ0525`, or `#N/A`). The dashboard groups them under "Neurčeno".
+
+## Security and deployment
+
+See [security-fixes.md](../docs/security-fixes.md) for the audit mapping and residual GPS / human identity limitations.
+
+- `NODE_ENV=production` rejects HTTP except `/health`. Forwarding headers are accepted only from explicit `TRUSTED_PROXIES` addresses/CIDRs; do not use a blanket trust setting on a public backend. `CORS_ORIGINS` is an explicit comma-separated allowlist, empty by default.
+- `npm run demo` refuses PostgreSQL and production mode. Clickable frontend `?demo=1` uses a separate browser mock and separate local storage; it never submits to the real API. Production builds ignore demo/mock query parameters unless explicitly built with `VITE_DEMO=1`.
+- Registration: `REGISTRATIONS_PER_HOUR=5` per IP; `MAX_PLAYERS=10000` total. General API limit 300/min/IP, map limit 60/min/IP, check-in starts 10/min/player. All limits reserve synchronously before asynchronous work and use a bounded key store; hashing has at most 16 in-flight jobs. Limits are per process; the game store still requires one serving backend instance for coherent in-memory game state.
+- Player tokens contain 256 random bits. Only SHA-256 digests are stored; `PLAYER_SESSION_HOURS=168` controls expiry. Each successful login rotates the token (one active token per player). `POST /api/players/logout` revokes it server-side. Clients must keep the newly returned token.
+- Schema migration expires legacy plaintext player tokens without deleting players, hashes, scores or history. Existing players log in again. Legacy players created without passwords cannot log in and require an operator-supported account recovery decision.
+- Abandoned check-ins are deleted from PostgreSQL during replacement and cleanup, with their pings cascading. Public POI detail keeps `last_visited_at: null`; private profile and administrative exports retain necessary timestamps. Public team aggregates can still reveal changes under polling.
+- The dashboard ignores `?api`, uses a hash-based CSP, denies framing, and renders tooltip labels as text. CSV exports neutralize spreadsheet formula prefixes.

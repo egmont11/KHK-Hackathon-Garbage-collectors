@@ -1,7 +1,4 @@
-# Krajánek: docker compose up -d --build
-# Jediné, co je potřeba nastavit: PORT = port na serveru pro přístup zvenku (výchozí 8080).
-# HTTPS řeší proxy před serverem (Coolify / Traefik / nginx). Ostatní volitelné viz .env.example.
-# Data (účty, body, sezóny) zůstávají v Postgresu i po restartu.
+# Production requires explicit secrets and a public DNS name for automatic HTTPS.
 services:
   db:
     image: postgres:16-alpine
@@ -9,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: krajanek
       POSTGRES_USER: krajanek
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-krajanek}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a strong POSTGRES_PASSWORD}
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
@@ -30,12 +27,21 @@ services:
       # HOST/PORT napevno: Caddy i healthcheck počítají s backend:3001 (Coolify si jinak může vnutit vlastní PORT)
       HOST: 0.0.0.0
       PORT: "3001"
-      DATABASE_URL: postgres://krajanek:${POSTGRES_PASSWORD:-krajanek}@db:5432/krajanek
-      CHECKIN_SECONDS: ${CHECKIN_SECONDS:-10}
+      PGHOST: db
+      PGPORT: "5432"
+      PGDATABASE: krajanek
+      PGUSER: krajanek
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set a strong POSTGRES_PASSWORD}
+      CHECKIN_SECONDS: "60"
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
-      ADMIN_MUST_CHANGE: ${ADMIN_MUST_CHANGE:-0}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set a strong ADMIN_PASSWORD}
+      ADMIN_MUST_CHANGE: "1"
+      ADMIN_RESET: ${ADMIN_RESET:-0}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+      TRUSTED_PROXIES: "172.30.57.10"
+      REGISTRATIONS_PER_HOUR: ${REGISTRATIONS_PER_HOUR:-5}
+      MAX_PLAYERS: ${MAX_PLAYERS:-10000}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health || exit 1"]
       interval: 10s
@@ -51,8 +57,25 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?Set the public HTTPS hostname}
     ports:
-      - "${PORT:-8080}:80"
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      default:
+        ipv4_address: 172.30.57.10
 
 volumes:
   db-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.57.0/24
