@@ -25,6 +25,9 @@ services:
       db:
         condition: service_healthy
     environment:
+      # HOST/PORT napevno: Caddy i healthcheck počítají s backend:3001 (Coolify si jinak může vnutit vlastní PORT)
+      HOST: 0.0.0.0
+      PORT: "3001"
       DATABASE_URL: postgres://krajanek:${POSTGRES_PASSWORD:-krajanek}@db:5432/krajanek
       CHECKIN_SECONDS: ${CHECKIN_SECONDS:-10}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
@@ -34,8 +37,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health || exit 1"]
       interval: 10s
-      timeout: 3s
-      retries: 10
+      timeout: 5s
+      start_period: 60s
+      retries: 12
 
   web:
     build:

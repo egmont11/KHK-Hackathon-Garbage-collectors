@@ -3,7 +3,8 @@
 FROM node:22-alpine AS build
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# --include=dev: vite je v devDependencies
+RUN npm ci --include=dev --no-audit --no-fund
 COPY frontend/ ./
 COPY data/poi.geojson data/stops.geojson /app/data/
 RUN npx vite build
