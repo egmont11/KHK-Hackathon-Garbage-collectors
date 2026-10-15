@@ -2,17 +2,13 @@
 
 *Objevuj, dobývej, poznávej kraj.*
 
-> Krátká verze pro tým. Podrobné zadání pro AI agenty je v [PLAN-AGENTS.md](PLAN-AGENTS.md), přehled dat v 
+> Krátká verze pro tým. Podrobné zadání pro AI agenty je v [AGENTS.md](AGENTS.md), přehled dat v 
 > [docs/data-khk-prehled.md](docs/data-khk-prehled.md).
 
 ## O co jde
-- Mapa Královéhradeckého kraje se **všemi body zájmu (POI)** z otevřených dat kraje: asi 2 300 míst, např. hrady, 
-- rozhledny, muzea, pivovary, koupaliště, přírodní zajímavosti a památky.
-- Hráč patří do jednoho ze **3 týmů**. Dojede k POI, ideálně **veřejnou dopravou**, a **1 minutu** zůstane do 
-- **100 m** od POI. Tím jeho tým získá body.
-- Kolik bodů POI dává, se počítá z dat (vzácnost, odlehlost, památková hodnota). Hraje se v **sezónách** 
-- (1 sezóna = čtvrtletí). Každé POI jde v sezóně obsadit jednou, na konci sezóny se vyhlásí vítěz a nová sezóna 
-- začíná od nuly.
+- Mapa Královéhradeckého kraje se **všemi body zájmu (POI)** z otevřených dat kraje: asi 2 300 míst, např. hrady, rozhledny, muzea, pivovary, koupaliště, přírodní zajímavosti a památky.
+- Hráč patří do jednoho ze **3 týmů**. Dojede k POI, ideálně **veřejnou dopravou**, a **1 minutu** zůstane do **100 m** od POI. Tím jeho tým získá body.
+- Kolik bodů POI dává, se počítá z dat (vzácnost, odlehlost, památková hodnota). Hraje se v **sezónách** (1 sezóna = čtvrtletí). Každé POI jde v sezóně obsadit jednou, na konci sezóny se vyhlásí vítěz a nová sezóna začíná od nuly.
 - Kraj z toho získá **anonymní statistiku**, kam lidé chodí. Lidé se baví a objevují méně známá místa.
 
 ## Téma a vzhled
@@ -45,7 +41,7 @@ přímo v aplikaci z jízdních řádů, possible turistické a cyklotrasy.
 | **C** | Backend / hra | API, týmy, check-in s kontrolou GPS, body a sezóny, události |
 | **D** | Doprava + kraj + pitch | Zastávky a odkazy na spoje, dashboard pro kraj, prezentace a demo |
 
-**Rozhraní mezi lidmi:** A předá `poi.geojson` (formát je v PLAN-AGENTS.md). C předá API a B ho používá. Dokud API 
+**Rozhraní mezi lidmi:** A předá `poi.geojson` (formát je v AGENTS.md). C předá API a B ho používá. Dokud API 
 neexistuje, B pracuje proti mock datům.
 
 ## Rozhodnout hned na začátku

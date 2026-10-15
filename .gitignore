@@ -148,7 +148,7 @@ vite.config.ts.timestamp-*
 # Turbo Repo
 .turbo
 
-# Stažená surová data (lokálně, necommitovat); výstupy role A podle PLAN-AGENTS.md ano
+# Stažená surová data (lokálně, necommitovat); výstupy role A podle AGENTS.md ano
 data/*
 !data/poi.geojson
 !data/stops.geojson

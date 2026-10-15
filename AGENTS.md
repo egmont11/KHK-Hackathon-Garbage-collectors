@@ -1,4 +1,4 @@
-# PLAN-AGENTS – podrobné zadání pro AI agenty
+# AGENTS – podrobné zadání pro AI agenty (Turisťák)
 
 Krátká verze pro lidi je v [PLAN.md](PLAN.md). Přehled všech zkoumaných dat je v [docs/data-khk-prehled.md](docs/data-khk-prehled.md).
 Tento dokument je zdroj pravdy pro implementaci. Při práci na úkolu přečti celou sekci své role a sekci **Kontrakty**.
@@ -10,6 +10,16 @@ Tento dokument je zdroj pravdy pro implementaci. Při práci na úkolu přečti 
   - 3 týmy. Hráč dojde k POI a 60 s zůstane do 100 m od něj. Tým dostane `points` daného POI.
   - Hraje se v sezónách (1 sezóna = čtvrtletí). Hráč obsadí každé POI max. 1× za sezónu. Body neubývají, nová sezóna = kompletní reset.
   - Kraj dostává anonymní statistiku návštěv.
+- **Název a téma:** Turisťák, tagline „Objevuj, dobývej, poznávej kraj.“ Objevování kraje (místa, historie, příroda, památky), motiv turistiky, maskot Krakonoš. Týmy Hory / Řeky / Lesy (viz 1.2).
+- **MVP (musí být na demo):**
+  1. Mapa s POI, filtry (kategorie, body, vzdálenost) a detailem POI.
+  2. Nejbližší autobusová a vlaková zastávka k POI + odkaz na vyhledání spoje (IDOS).
+  3. Výběr týmu, check-in podle GPS (100 m / 60 s) a přičtení bodů.
+  4. Žebříček týmů za aktuální sezónu.
+  5. Jednoduchý dashboard pro kraj: návštěvy po POI a kategoriích (heatmapa).
+- **Stretch (až zbude čas):** quick time eventy (bonusový POI na týden), „co nejvíc z jednoho týmu“ a souboje o POI, odznaky, plánování spojů v aplikaci z jízdních řádů, případně turistické a cyklotrasy. Nezačínat, dokud MVP nefunguje end-to-end.
+- **Stack (návrh, odsouhlasit na startu):** web (PWA) + Leaflet, backend Node (TypeScript) + Postgres.
+- **Role:** A Data, B Frontend/mapa, C Backend/hra, D Doprava + dashboard kraje + pitch. Ve 3 lidech se spojují role C a D.
 
 ## 1. Kontrakty (rozhraní mezi rolemi – neměnit bez domluvy)
 
@@ -42,7 +52,9 @@ POST /api/players            {name, team}                           -> {player_i
 POST /api/checkins/start     {poi_id, lat, lon, accuracy_m}          -> {checkin_id, required_seconds: 60}
 POST /api/checkins/:id/ping  {lat, lon, accuracy_m}                  -> {elapsed_s, valid}
 POST /api/checkins/:id/finish                                       -> {awarded_points, team_score}
-GET  /api/teams                                                     -> [{team, score, members}]
+GET  /api/teams                                                     -> [{team, score, members}] (skóre aktuální sezóny)
+GET  /api/seasons/current                                           -> {season_id, starts_at, ends_at}
+GET  /api/seasons/history                                           -> [{season_id, starts_at, ends_at, ranking: [{team, score}]}]
 GET  /api/events/active                                             -> aktivní quick time eventy
 GET  /api/stats/poi?from=&to=                                       -> agregace pro dashboard kraje
 ```
@@ -113,7 +125,7 @@ Týmy (ID neměnit): `hory` = Hory, červená `#D7263D`; `reky` = Řeky, modrá 
 | Lázně | `f2e7d14c208f44b99741710aeba77ab1` | `L%C3%A1zn%C4%9B/FeatureServer` | lazne / sluzby |
 | Kulturní akce se záštitou 2026–2029 (vrstva **4**) | `63be156a63564852b29cdaa27e420024` | `Trval%C3%A9_z%C3%A1%C5%A1tity_Rady_Kr%C3%A1lov%C3%A9hradeck%C3%A9ho_kraje/FeatureServer` | **není POI**: zdroj pro eventy (pole `termin`, text „červen–srpen“) |
 
-Kromě válečných hrobů a knihoven je to asi 1 850 POI, se všemi asi 3 700.
+Kromě válečných hrobů a knihoven je to asi 1 850 POI, s knihovnami asi 2 300 (to je počet uváděný v PLAN.md), se všemi asi 3 700.
 
 ### 2.3 Čištění
 - Deduplikace: stejné `name` (normalizované, bez diakritiky a malých/velkých písmen) a vzdálenost < 75 m znamená jedno POI. Ponech první podle pořadí tabulky, ostatní kategorie ulož do `also_in` (např. Adalbertinum je v divadlech i v kulturních domech).
@@ -152,14 +164,14 @@ Konstanty dej do jednoho configu, ať se dají ladit.
 
 ## 3. Role B – Frontend / mapa
 **Název aplikace:** Turisťák, tagline „Objevuj, dobývej, poznávej kraj.“
-**Vizuální motiv:** turistika + orientační běh. Hravě, ale střídmě, bez maskotů.
-- Podklad mapy: světlý, „papírový“, inspirovaný orientační mapou (bílý les, zelené odstíny hustoty, hnědé vrstevnice, modrá voda). Návrh: MapLibre s vlastním stylem nad OSM vektory, nebo světlé rastrové dlaždice s teplým filtrem.
-- Marker POI: kontrola OB (fialový kroužek `#A626A4`). Zabrané POI má výplň barvou týmu.
+**Vizuální motiv:** turistika. Hravě, ale střídmě, maskot Krakonoš.
+- Podklad mapy: světlý, „papírový“, inspirovaný orientační mapou (bílý les, zelené odstíny hustoty, hnědé vrstevnice, modrá voda). Návrh: světlé rastrové dlaždice v Leafletu s teplým filtrem.
+- Marker POI: malá cedulka na tyčce. Zabrané POI má cedulku v barvě týmu.
 - Detail POI: žlutá cedule rozcestníku (`#F2C230`, tmavý text): název, vzdálenost, body, nejbližší zastávka.
 - Ikona týmu: značka bílá–barva–bílá (vodorovné pruhy).
-- Check-in = „ražení kontroly“: kruhový odpočet 60 s, na konci krátká animace razítka.
+- Check-in: kruhový odpočet 60 s, na konci krátká animace úspěchu.
 - Font zaoblený a přátelský (Nunito nebo Baloo 2), rohy zaoblené, ikony jednoduché a lineární.
-- PWA (mobil first). Návrh: Vite + React + **MapLibre GL** nebo **Leaflet** + `leaflet.markercluster` (asi 2 000 bodů vyžaduje clustering).
+- PWA (mobil first). Návrh: Vite + React + **Leaflet** + `leaflet.markercluster` (asi 2 000 bodů vyžaduje clustering).
 - Podklad: OpenStreetMap tiles (s atribucí) nebo Mapy.cz API, pokud máte klíč.
 - Obrazovky:
   1. **Mapa:** clustery, barva markeru podle týmu, který POI naposledy „dobyl“, ikona podle `group`.
@@ -172,7 +184,7 @@ Konstanty dej do jednoho configu, ať se dají ladit.
 - Demo režim: query param `?demo=1` umožní nastavit polohu kliknutím do mapy (na pitch bez cestování).
 
 ## 4. Role C – Backend / herní logika
-- Návrh: Node (Fastify/Express) nebo Python (FastAPI) + SQLite (stačí). Při startu načte `data/poi.geojson`.
+- Node (TypeScript, Fastify/Express) + Postgres. Při startu načte `data/poi.geojson`.
 - Tabulky: `players(id, name, team, token, created_at)`, `checkins(id, player_id, poi_id, started_at, finished_at, valid, awarded_points)`, `pings(checkin_id, ts, lat, lon, accuracy_m)`, `seasons(id, starts_at, ends_at)`, `team_scores(season_id, team, score, updated_at)`, `events(id, type, poi_id, starts_at, ends_at, multiplier)`.
 - **Validace check-inu (anti-cheat):**
   - každý ping: vzdálenost k POI ≤ 100 m a `accuracy_m` ≤ 50,
@@ -182,9 +194,10 @@ Konstanty dej do jednoho configu, ať se dají ladit.
   - stejný hráč a stejné POI jen 1× za sezónu.
 - **Sezóny:** 1 sezóna = kalendářní čtvrtletí. Body se během sezóny jen sčítají, neubývají. Na konci sezóny se uloží konečné pořadí (historie vítězů) a nová sezóna začíná od nuly. Délka sezóny musí jít nastavit v konfiguraci (demo: pár minut), přechod na novou sezónu počítej líně při čtení/zápisu, ne cronem.
 - **Quick time eventy (stretch):**
-  - každých N minut náhodné POI s `multiplier = 2–3` na 30 min,
-  - „první tým, který dorazí, bere bonus“,
+  - náhodné POI s `multiplier = 2–3` na týden,
+  - „co nejvíc z jednoho týmu“: bonus pro tým, jehož nejvíc hráčů POI orazí, souboje týmů o POI,
   - zdroj zajímavých eventů: kulturní akce se záštitou kraje (vrstva 4).
+- **Další stretch:** odznaky za kategorie / počet navštívených POI, turistické a cyklotrasy.
 - **Statistika pro kraj:** ukládej jen check-in události (POI, čas, tým). **Neukládej souvislé trasy.** Pingy po 24 h smaž. `/api/stats/poi` vrací agregace po POI, kategorii, ORP a hodině.
 
 ## 5. Role D – Doprava, dashboard kraje, pitch
