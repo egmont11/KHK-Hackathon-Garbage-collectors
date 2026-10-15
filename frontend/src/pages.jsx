@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, loadStops, resetMock, usingMock } from './api.js'
 import { TEAMS, distanceM, formatDistance } from './geo.js'
-import { Icon, PageHeader, TeamBadge, TeamIcon } from './ui.jsx'
+import { Icon, PageHeader, TeamBadge, TeamIcon, seasonLabel } from './ui.jsx'
 
 const StopIcon = ({ type }) => <Icon name={type === 'train' ? 'train' : 'directions_bus'} />
 
@@ -153,12 +153,17 @@ function useCountdown(endsAt) {
   return d > 0 ? `${d} d ${h} h ${m} min` : `${h} h ${m} min ${s} s`
 }
 
-export function LeaderboardPage({ season, myTeam }) {
+export function LeaderboardPage({ season, myTeam, myId }) {
   const [teams, setTeams] = useState([])
+  const [players, setPlayers] = useState([])
   const [history, setHistory] = useState([])
   const countdown = useCountdown(season?.ends_at)
   useEffect(() => {
-    const load = () => { api.teams().then(setTeams, () => {}); api.seasonHistory().then(setHistory, () => {}) }
+    const load = () => {
+      api.teams().then(setTeams, () => {})
+      api.topPlayers(10).then(setPlayers, () => {})
+      api.seasonHistory().then(setHistory, () => {})
+    }
     load()
     const id = setInterval(load, 10000)
     return () => clearInterval(id)
@@ -170,7 +175,7 @@ export function LeaderboardPage({ season, myTeam }) {
       <PageHeader title="Žebříček" />
       {season && (
         <div className="season-pill">
-          <span>{season.season_id}</span>
+          <span>{seasonLabel(season.season_id)}</span>
           <span><Icon name="hourglass_top" /> {countdown}</span>
         </div>
       )}
@@ -194,6 +199,22 @@ export function LeaderboardPage({ season, myTeam }) {
           </div>
         ))}
       </div>
+
+      <h3 className="section">Top 10 hráčů</h3>
+      {players.length === 0 ? <p className="muted">Zatím nikdo nic nezabral.</p> : (
+        <ol className="top-players">
+          {players.map((p, i) => (
+            <li key={p.player_id} className={p.player_id === myId ? 'mine' : ''} style={{ '--c': TEAMS[p.team]?.color }}>
+              <span className="rank">{i + 1}</span>
+              <TeamIcon team={p.team} size={20} />
+              <span className="name">{p.name}</span>
+              <small>{p.places} míst</small>
+              <b>{p.points.toLocaleString('cs')}</b>
+            </li>
+          ))}
+        </ol>
+      )}
+
       {history.length > 0 && (
         <>
           <h3 className="section">Minulé sezóny</h3>
@@ -202,7 +223,7 @@ export function LeaderboardPage({ season, myTeam }) {
               const ranking = [...s.ranking].sort((a, b) => b.score - a.score)
               return (
                 <li key={s.season_id}>
-                  <span>{s.season_id}</span>
+                  <span>{seasonLabel(s.season_id)}</span>
                   <span className="history-rank">
                     <Icon name="emoji_events" fill /> <TeamBadge team={ranking[0]?.team} /> {ranking[0]?.score.toLocaleString('cs')}
                   </span>
@@ -216,31 +237,55 @@ export function LeaderboardPage({ season, myTeam }) {
   )
 }
 
-// --- Quick time eventy (questy) ---
+// --- Questy: týdenní týmové (soutěží všechny týmy) + můj denní ---
+function QuestStandings({ players, leader }) {
+  const max = Math.max(1, ...Object.values(players || {}))
+  return (
+    <div className="quest-teams">
+      {Object.keys(TEAMS).map((t) => (
+        <div key={t} className={`quest-team${leader === t ? ' lead' : ''}`} style={{ '--c': TEAMS[t].color }}>
+          <TeamIcon team={t} size={18} />
+          <div className="bar"><i style={{ width: `${((players?.[t] || 0) / max) * 100}%` }} /></div>
+          <b>{players?.[t] || 0}</b>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function EventsPage({ poiById, position, visited, onShow }) {
-  const [events, setEvents] = useState(null)
+  const [quests, setQuests] = useState(null)
   const [error, setError] = useState(null)
-  useEffect(() => { api.activeEvents().then(setEvents, (e) => setError(e.message)) }, [])
+  useEffect(() => {
+    const load = () => api.quests().then(setQuests, (e) => setError(e.message))
+    load()
+    const id = setInterval(load, 15000)
+    return () => clearInterval(id)
+  }, [])
+  const daily = quests?.daily
   return (
     <>
       <PageHeader title="Questy" />
       {error && <p className="err">{error}</p>}
-      {events?.length === 0 && <div className="empty"><Icon name="flag" /></div>}
-      {events?.map((e) => {
-        if (e.type === 'daily_category') {
-          return (
-            <div key={e.id} className="quest daily">
-              <span className="mult">×{e.multiplier}</span>
-              <div className="quest-body">
-                <b>Dnes: {e.category_label}</b>
-                <small>
-                  <span><Icon name="location_on" /> {e.poi_count} míst</span>
-                  <span><Icon name="schedule" /> do {fmtDateTime(e.ends_at)}</span>
-                </small>
-              </div>
-            </div>
-          )
-        }
+
+      {daily && (
+        <div className={`quest daily${daily.completed ? ' done' : ''}`}>
+          <span className="mult">{daily.completed ? <Icon name="check" /> : `×${String(daily.multiplier).replace('.', ',')}`}</span>
+          <div className="quest-body">
+            <b>Dnes: {daily.category_label}</b>
+            <small>
+              {daily.completed
+                ? <span><Icon name="check_circle" /> Splněno (+{daily.completed_points} b.)</span>
+                : <span><Icon name="person" /> Tvůj denní quest · zaber jedno místo</span>}
+              <span><Icon name="schedule" /> do {fmtDateTime(daily.ends_at)}</span>
+            </small>
+          </div>
+        </div>
+      )}
+
+      <h3 className="section">Týdenní souboj týmů</h3>
+      <p className="muted"><Icon name="emoji_events" /> Tým, jehož nejvíc hráčů místo do konce týdne zabere, získá body navíc.</p>
+      {quests?.weekly?.map((e) => {
         const poi = poiById.get(e.poi_id)
         if (!poi) return null
         const p = poi.properties
@@ -248,19 +293,37 @@ export function EventsPage({ poiById, position, visited, onShow }) {
         const dist = position ? distanceM(position.lat, position.lon, t.lat, t.lon) : null
         const done = visited.get(p.id)
         return (
-          <button key={e.id} className={`quest${done ? ' done' : ''}`} onClick={() => onShow(p.id)}>
-            <span className="mult">{done ? <Icon name="check" /> : `×${e.multiplier}`}</span>
-            <div className="quest-body">
-              <b>{p.name}</b>
-              <small>
-                <span><Icon name="event" /> {fmtDate(e.ends_at)}</span>
-                {dist != null && <span><Icon name="near_me" /> {formatDistance(dist)}</span>}
-              </small>
+          <button key={e.id} className={`quest weekly${done ? ' mine' : ''}`} onClick={() => onShow(p.id)}>
+            <div className="quest-head">
+              <span className="mult"><Icon name="flag" fill /></span>
+              <div className="quest-body">
+                <b>{p.name}</b>
+                <small>
+                  <span><Icon name="event" /> do {fmtDate(e.ends_at)}</span>
+                  {dist != null && <span><Icon name="near_me" /> {formatDistance(dist)}</span>}
+                  {done && <span><Icon name="check_circle" /> zabráno</span>}
+                </small>
+              </div>
+              <span className="quest-pts">+{e.reward}<small> b.</small></span>
             </div>
-            <span className="quest-pts">{done ? `+${done.points}` : e.bonus_points ?? Math.round(p.points * e.multiplier)}<small> b.</small></span>
+            <QuestStandings players={e.players} leader={e.leader} />
           </button>
         )
       })}
+
+      {quests?.last_week?.some((q) => q.leader) && (
+        <>
+          <h3 className="section">Minulý týden</h3>
+          <ul className="visited">
+            {quests.last_week.filter((q) => q.leader).map((q) => (
+              <li key={q.poi_id}>
+                <span>{poiById.get(q.poi_id)?.properties.name || q.poi_name}</span>
+                <span className="history-rank"><Icon name="emoji_events" fill /> <TeamBadge team={q.leader} /> +{q.reward}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </>
   )
 }
@@ -322,7 +385,7 @@ export function ProfilePage({ player, me, poiById, onShow, onLogout }) {
           <h3 className="section">Minulé sezóny</h3>
           <ul className="visited">
             {me.badge_archive.map((s) => (
-              <li key={s.season_id}><span>{s.season_id}</span><span className="muted">{s.badges.map((b) => b.name).join(', ')}</span></li>
+              <li key={s.season_id}><span>{seasonLabel(s.season_id)}</span><span className="muted">{s.badges.map((b) => b.name).join(', ')}</span></li>
             ))}
           </ul>
         </>
@@ -344,7 +407,6 @@ export function ProfilePage({ player, me, poiById, onShow, onLogout }) {
           <Icon name="logout" /> Odhlásit
         </button>
         {usingMock && <button className="btn-outline" onClick={() => { resetMock(); location.reload() }}><Icon name="restart_alt" /> Mock</button>}
-        {!usingMock && <a className="btn-outline" href="/dashboard" target="_blank" rel="noreferrer"><Icon name="monitoring" /> Dashboard kraje</a>}
       </div>
     </>
   )

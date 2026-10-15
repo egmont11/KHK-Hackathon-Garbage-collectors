@@ -16,7 +16,7 @@ const PIN_TIP = [46.7, 94.6] // špička kůlu = bod na mapě
 const PIN_WOOD = 'M40.4 .4 89.6 15.8 103.3 33.8 80 39.6 64.2 36.3 46.7 94.6 46.3 83.8 44.2 85 43.8 82.5 37.9 86.7 54.2 32.5 25.8 23.3 34.6 22.5 33.3 20 30 17.1 39.2 9.2 35.4 3.8Z'
 const PIN_RIBBON = 'M0 32.6Q30 29.8 64.8 35.8L63.2 43.6Q30 37.6 1.6 40.4L5.4 36.4Z'
 
-function poiIcon({ group, team, bonus, visited, selected }) {
+function poiIcon({ group, team, bonus, quest, visited, selected }) {
   const scale = selected ? 0.8 : 0.6
   const [w, h] = [PIN_W * scale, PIN_H * scale]
   const ribbon = team ? `<path class="pin-ribbon" d="${PIN_RIBBON}" fill="${TEAMS[team]?.color}"/>` : ''
@@ -26,7 +26,7 @@ function poiIcon({ group, team, bonus, visited, selected }) {
     html: `<div class="${cls}">`
       + `<svg viewBox="0 0 ${PIN_W} ${PIN_H}" width="${w}" height="${h}"><path class="pin-wood" d="${PIN_WOOD}"/>${ribbon}</svg>`
       + `<span class="pin-icon material-symbols-rounded">${groupIcon(group)}</span>`
-      + (bonus ? `<b class="pin-tag">×${bonus}</b>` : '')
+      + (bonus ? `<b class="pin-tag">×${String(bonus).replace('.', ',')}</b>` : quest ? '<b class="pin-tag quest material-symbols-rounded">flag</b>' : '')
       + (visited ? '<span class="pin-check material-symbols-rounded">check</span>' : '')
       + '</div>',
     iconSize: [w, h],
@@ -42,7 +42,7 @@ const clusterIcon = (cluster) => {
 
 const meIcon = L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [22, 22] })
 
-export default function MapView({ pois, live, visited, selectedId, onSelect, position, demo, onDemoClick }) {
+export default function MapView({ pois, live, visited, dailyCategory, selectedId, onSelect, position, demo, onDemoClick }) {
   const elRef = useRef(null)
   const mapRef = useRef(null)
   const clusterRef = useRef(null)
@@ -84,7 +84,7 @@ export default function MapView({ pois, live, visited, selectedId, onSelect, pos
       wanted.add(p.id)
       const l = live[p.id] || {}
       // stužka: tým s nejvíc body na místě (top_team), záložně tým, který místo drží
-      const look = { group: p.group, team: l.top_team || l.owner_team || null, bonus: l.event_multiplier || null, visited: visited.has(p.id), selected: p.id === selectedId }
+      const look = { group: p.group, team: l.top_team || l.owner_team || null, bonus: l.event_multiplier || (p.category === dailyCategory ? 1.4 : null), quest: !!l.quest, visited: visited.has(p.id), selected: p.id === selectedId }
       const key = JSON.stringify(look)
       let entry = markers.get(p.id)
       if (!entry) {
@@ -105,7 +105,7 @@ export default function MapView({ pois, live, visited, selectedId, onSelect, pos
     }
     if (toRemove.length) cluster.removeLayers(toRemove)
     if (toAdd.length) cluster.addLayers(toAdd)
-  }, [pois, live, visited, selectedId])
+  }, [pois, live, visited, selectedId, dailyCategory])
 
   useEffect(() => {
     if (!position) return

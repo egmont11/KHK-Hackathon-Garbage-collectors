@@ -8,7 +8,16 @@ export const Icon = ({ name, fill }) => (
 export const DEMO = new URLSearchParams(location.search).has('demo')
 
 export const go = (page, id) => { location.hash = id ? `/${page}/${encodeURIComponent(id)}` : `/${page}` }
-export const back = () => (history.length > 1 ? history.back() : go(''))
+// Zpět z podstránky vede vždy na mapu.
+export const back = () => go('')
+
+// „2026-Q4“ -> „2026 podzim“ (čtvrtletí: zima, jaro, léto, podzim), ručně ukončená „2026-Q4-2“ -> „2026 podzim (2)“.
+const SEASON_NAMES = ['zima', 'jaro', 'léto', 'podzim']
+export function seasonLabel(id) {
+  const m = /^(\d{4})-Q([1-4])(?:-(\d+))?$/.exec(id || '')
+  if (!m) return id || ''
+  return `${m[1]} ${SEASON_NAMES[m[2] - 1]}${m[3] ? ` (${m[3]})` : ''}`
+}
 
 // Týmové ikony od Tadeáše (hora / vlny / stromy)
 const TEAM_PATHS = {

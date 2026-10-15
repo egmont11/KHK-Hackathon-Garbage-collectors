@@ -6,7 +6,7 @@ import { TEAMS, distanceM, formatDistance } from './geo.js'
 import { GROUPS, groupIcon } from './groups.js'
 import { checkinRadius, useCheckin, useGame, useOnline, usePosition } from './hooks.js'
 import { EventsPage, LeaderboardPage, PoiInfoPage, ProfilePage, TransportPage } from './pages.jsx'
-import { DEMO, Icon, KctMark, TeamBadge, TeamIcon, go } from './ui.jsx'
+import { DEMO, Icon, KctMark, TeamBadge, TeamIcon, go, seasonLabel } from './ui.jsx'
 
 // Jednoduchý hash router: #/info/<id>, #/doprava/<id>, #/zebricek, #/udalosti, #/profil
 function useRoute() {
@@ -70,11 +70,13 @@ function Game({ player, onLogout }) {
   const routePoi = route.id && poiById.get(route.id)
   const showOnMap = (id) => { setSelectedId(id); go('') }
   const team = me?.team || player.team
+  // můj denní quest (kategorie), dokud není splněný: na mapě ×1.4
+  const dailyCategory = me?.daily_quest && !me.daily_quest.completed ? me.daily_quest.category : null
 
   let page = null
   if (route.page === 'info' && routePoi) page = <PoiInfoPage poi={routePoi} live={live[routePoi.properties.id]} visit={visited.get(routePoi.properties.id)} />
   if (route.page === 'doprava' && routePoi) page = <TransportPage poi={routePoi} position={position} />
-  if (route.page === 'zebricek') page = <LeaderboardPage season={season} myTeam={team} />
+  if (route.page === 'zebricek') page = <LeaderboardPage season={season} myTeam={team} myId={me?.player_id || player.player_id} />
   if (route.page === 'udalosti') page = <EventsPage poiById={poiById} position={position} visited={visited} onShow={showOnMap} />
   if (route.page === 'profil') page = <ProfilePage player={player} me={me} poiById={poiById} onShow={showOnMap} onLogout={onLogout} />
 
@@ -97,6 +99,7 @@ function Game({ player, onLogout }) {
         selected={selectedId && poiById.get(selectedId)}
         setSelectedId={setSelectedId}
         checkin={checkin}
+        dailyCategory={dailyCategory}
       />
       <div className="banners">
         {!online && <div className="banner err"><Icon name="cloud_off" /> Server je nedostupný, zkouším to znovu…</div>}
@@ -104,7 +107,7 @@ function Game({ player, onLogout }) {
         {geoError && !DEMO && <div className="banner"><Icon name="location_off" /> {geoError}</div>}
         {game.newSeason && (
           <div className="banner info">
-            <Icon name="restart_alt" /> Začala nová sezóna {game.newSeason}. Body se vynulovaly, všechna místa jdou zabrat znovu.
+            <Icon name="restart_alt" /> Začala nová sezóna {seasonLabel(game.newSeason)}. Body se vynulovaly, všechna místa jdou zabrat znovu.
             <button className="banner-close" onClick={game.clearNewSeason} aria-label="Zavřít"><Icon name="close" /></button>
           </div>
         )}
@@ -121,7 +124,7 @@ function Game({ player, onLogout }) {
 
 const EMPTY_FILTERS = { q: '', group: '', category: '', minPoints: 0, maxKm: '', nearStop: false, bonus: false, unvisited: false, owner: '' }
 
-function MapPage({ pois, live, visited, team, position, setPosition, selected, setSelectedId, checkin }) {
+function MapPage({ pois, live, visited, team, position, setPosition, selected, setSelectedId, checkin, dailyCategory }) {
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [filterOpen, setFilterOpen] = useState(false)
   const [toast, setToast] = useState(null)
@@ -142,7 +145,7 @@ function MapPage({ pois, live, visited, team, position, setPosition, selected, s
       if (filters.category && p.category !== filters.category) return false
       if ((l.bonus_points ?? p.points) < filters.minPoints) return false
       if (filters.nearStop && !(p.nearest_stop && p.nearest_stop.distance_m <= 500)) return false
-      if (filters.bonus && !l.event_multiplier) return false
+      if (filters.bonus && !l.event_multiplier && !l.quest && p.category !== dailyCategory) return false
       if (filters.unvisited && visited.has(p.id)) return false
       if (filters.owner && (l.owner_team || 'none') !== filters.owner) return false
       if (filters.maxKm && position) {
@@ -151,7 +154,7 @@ function MapPage({ pois, live, visited, team, position, setPosition, selected, s
       }
       return true
     })
-  }, [pois, live, visited, filters, position])
+  }, [pois, live, visited, filters, position, dailyCategory])
   const filterActive = Object.entries(filters).some(([k, v]) => v !== EMPTY_FILTERS[k])
 
   const sel = selected?.properties
@@ -179,6 +182,7 @@ function MapPage({ pois, live, visited, team, position, setPosition, selected, s
         pois={filtered}
         live={live}
         visited={visited}
+        dailyCategory={dailyCategory}
         selectedId={sel?.id}
         onSelect={setSelectedId}
         position={position}
@@ -213,7 +217,10 @@ function MapPage({ pois, live, visited, team, position, setPosition, selected, s
             <div className="signpost-meta">
               {selLive.event_multiplier
                 ? <span className="pts">{selLive.bonus_points} b. ×{selLive.event_multiplier}</span>
-                : <span className="pts">{sel.points} b.</span>}
+                : sel.category === dailyCategory
+                  ? <span className="pts">{Math.round(sel.points * 1.4)} b. ×1,4</span>
+                  : <span className="pts">{sel.points} b.</span>}
+              {selLive.quest && <span><Icon name="flag" fill /> týmový quest</span>}
               {dist != null && <span><Icon name="near_me" />{formatDistance(dist)}</span>}
               {stop && <span><Icon name={stop.type === 'train' ? 'train' : 'directions_bus'} />{formatDistance(stop.distance_m)}</span>}
               {selLive.owner_team && <span><Icon name="flag" fill /><TeamBadge team={selLive.owner_team} /></span>}

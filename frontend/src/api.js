@@ -67,7 +67,7 @@ async function http(method, path, body) {
   return data
 }
 
-const LIVE_FIELDS = ['owner_team', 'event_multiplier', 'event_type', 'bonus_points', 'visits']
+const LIVE_FIELDS = ['owner_team', 'top_team', 'event_multiplier', 'event_type', 'quest', 'bonus_points', 'visits']
 
 const real = {
   createPlayer: (body) => http('POST', '/api/players', body),
@@ -86,11 +86,14 @@ const real = {
     return Object.fromEntries(features.map((f) => [f.properties.id, Object.fromEntries(LIVE_FIELDS.map((k) => [k, f.properties[k]]))]))
   },
 
-  // weekly = bonusová místa, daily = bonusová kategorie dne
+  // weekly = týmové questy (místa), daily = můj osobní denní quest (kategorie)
   async activeEvents() {
     const { weekly = [], daily } = await http('GET', '/api/events/active')
     return [...weekly, ...(daily ? [daily] : [])]
   },
+  // {weekly: [{poi_id, players: {hory, reky, lesy}, leader, reward, ends_at, …}], daily: {category, multiplier, completed, …}, last_week: […]}
+  quests: () => http('GET', '/api/events/active'),
+  topPlayers: (limit = 10) => http('GET', `/api/players/top?limit=${limit}`),
 }
 
 // --- Mock (bez backendu, jen pro vývoj UI) ---
@@ -260,6 +263,15 @@ const mock = {
     }
     const visits = Object.values(team_checkins).reduce((a, n) => a + n, 0)
     return { id, owner_team: s.owners[id] || null, team_checkins, visits, last_visited_at: last, event: null }
+  },
+
+  async quests() {
+    const weekly = (await mock.activeEvents()).map((e) => ({ ...e, multiplier: 1, reward: 200, players: { hory: 0, reky: 0, lesy: 0 }, leader: null }))
+    return { weekly, daily: null, last_week: [] }
+  },
+
+  async topPlayers() {
+    return []
   },
 
   // quick time eventy: každý týden 3 pseudonáhodná POI s ×2 body (stejná pro všechny)
