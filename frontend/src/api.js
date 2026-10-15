@@ -1,16 +1,17 @@
-// Klient pro REST API z AGENTS.md (kontrakt 1.2).
-// Bez VITE_API_URL běží mock v prohlížeči (localStorage) se stejným rozhraním,
-// takže po napojení na backend stačí nastavit VITE_API_URL=http://localhost:3000.
+// Klient pro REST API backendu (kontrakt 1.2, detaily v backend/README.md).
+// Výchozí je backend přes Vite proxy (/api -> localhost:3001). VITE_API_URL přepíše adresu
+// backendu, VITE_MOCK=1 (nebo ?mock v URL) spustí mock v prohlížeči (localStorage) se stejným rozhraním.
 import { distanceM } from './geo.js'
 
-const API_URL = import.meta.env.VITE_API_URL
-export const usingMock = !API_URL
+const API_URL = import.meta.env.VITE_API_URL || ''
+export const usingMock = import.meta.env.VITE_MOCK === '1' || new URLSearchParams(location.search).has('mock')
 
-// --- POI (zatím vždy ze statického souboru; backend vrací totéž + live stav) ---
+// --- POI (backend vrací poi.geojson + live stav; mock čte statický soubor) ---
 let poiCache
 export async function loadPois() {
   if (!poiCache) {
-    const res = await fetch(API_URL ? `${API_URL}/api/poi` : '/data/poi.geojson')
+    const res = await fetch(usingMock ? '/data/poi.geojson' : `${API_URL}/api/poi`)
+    if (!res.ok) throw new Error(`Nepodařilo se načíst místa (HTTP ${res.status}). Běží backend?`)
     poiCache = (await res.json()).features
   }
   return poiCache
@@ -31,21 +32,50 @@ async function http(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || data.message || `HTTP ${res.status}`)
+  if (!res.ok) {
+    // Neplatný hráčský token (např. restart backendu v paměťovém režimu) -> App pošle hráče na onboarding.
+    if (res.status === 401 && token) window.dispatchEvent(new Event('turistak-unauthorized'))
+    throw new Error(data.error?.message || data.message || `HTTP ${res.status}`)
+  }
   return data
 }
 
+const TEAM_IDS = ['hory', 'reky', 'lesy']
+
+// Backend vrací tvary bohatší / jinak seskupené než mock; tady se převádějí na rozhraní, které čte UI.
 const real = {
   createPlayer: (body) => http('POST', '/api/players', body),
+  me: () => http('GET', '/api/players/me'),
   startCheckin: (body) => http('POST', '/api/checkins/start', body),
   ping: (id, body) => http('POST', `/api/checkins/${id}/ping`, body),
   finish: (id) => http('POST', `/api/checkins/${id}/finish`),
   teams: () => http('GET', '/api/teams'),
   currentSeason: () => http('GET', '/api/seasons/current'),
-  poiOwners: async () => ({}), // TODO: z /api/poi (live stav), až ho backend bude vracet
-  poiStats: (id) => http('GET', `/api/poi/${encodeURIComponent(id)}`),
-  activeEvents: () => http('GET', '/api/events/active'),
-  myCheckins: async () => [], // TODO: endpoint v kontraktu zatím není
+  seasonHistory: () => http('GET', '/api/seasons/history'),
+
+  // barva markeru = tým s nejvíc check-iny v sezóně (owner_team)
+  async poiOwners() {
+    const { features } = await http('GET', '/api/poi?lite=1')
+    return Object.fromEntries(features.filter((f) => f.properties.owner_team).map((f) => [f.properties.id, f.properties.owner_team]))
+  },
+
+  async poiStats(id) {
+    const d = await http('GET', `/api/poi/${encodeURIComponent(id)}`)
+    const teams = Object.fromEntries(TEAM_IDS.map((t) => [t, { visits: d.team_checkins?.[t] ?? 0, points: null }]))
+    return { id, last_team: d.owner_team, visits: d.visits, teams, event: d.event }
+  },
+
+  // weekly = bonusová místa, daily = bonusová kategorie dne
+  async activeEvents() {
+    const { weekly = [], daily } = await http('GET', '/api/events/active')
+    return [...weekly, ...(daily ? [daily] : [])]
+  },
+
+  async profile() {
+    const me = await real.me()
+    const checkins = me.visited.map((v) => ({ id: v.poi_id, poi_id: v.poi_id, awarded_points: v.points, finished_at: v.at }))
+    return { checkins, badges: me.badges }
+  },
 }
 
 // --- Mock ---
@@ -182,11 +212,21 @@ const mock = {
     }))
   },
 
-  async myCheckins() {
+  async me() {
+    return me(load())
+  },
+
+  async seasonHistory() {
+    return []
+  },
+
+  // badges: null = UI spočítá odznaky samo
+  async profile() {
     const s = load()
     const player = me(s)
-    if (!player) return []
-    return Object.values(s.checkins).filter((c) => c.player_id === player.player_id && c.awarded_points)
+    if (!player) return { checkins: [], badges: null }
+    const checkins = Object.values(s.checkins).filter((c) => c.player_id === player.player_id && c.awarded_points)
+    return { checkins, badges: null }
   },
 }
 

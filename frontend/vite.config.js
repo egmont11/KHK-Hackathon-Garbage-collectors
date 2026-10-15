@@ -27,5 +27,14 @@ function repoData() {
   }
 }
 
+// /api a dashboard kraje jdou přes proxy na backend (výchozí port 3001), takže frontend
+// volá relativní URL a funguje i z telefonu v síti (a přes HTTPS bez mixed content).
+const BACKEND = process.env.BACKEND_URL || 'http://localhost:3001'
+const proxy = Object.fromEntries(['/api', '/dashboard', '/vendor', '/health'].map((p) => [p, { target: BACKEND, changeOrigin: true }]))
+
 // HTTPS=1 (npm run dev:https): self-signed cert, aby na telefonech v síti fungovala GPS.
-export default defineConfig({ plugins: [react(), repoData(), ...(process.env.HTTPS ? [basicSsl()] : [])] })
+export default defineConfig({
+  plugins: [react(), repoData(), ...(process.env.HTTPS ? [basicSsl()] : [])],
+  server: { proxy },
+  preview: { proxy },
+})

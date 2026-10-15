@@ -8,6 +8,12 @@ import { EventsPage, LeaderboardPage, PoiInfoPage, ProfilePage, TransportPage } 
 
 const PING_EVERY_MS = 5000
 const CHECKIN_RADIUS_M = 100
+const PING_REASONS = {
+  OUT_OF_RANGE: 'Jsi dál než 100 m od místa.',
+  LOW_ACCURACY: 'Máš slabý signál GPS.',
+  TOO_FAST: 'Pohybuješ se moc rychle.',
+  default: 'Jsi mimo 100 m nebo máš slabé GPS.',
+}
 
 function usePosition() {
   const [position, setPosition] = useState(null)
@@ -54,14 +60,14 @@ function useCheckin(position, onCaptured) {
       setState({ phase: 'running', poiId, name: poi.properties.name, elapsed: 0, required: required_seconds, valid: true })
       timer.current = setInterval(async () => {
         try {
-          const { elapsed_s, valid } = await api.ping(checkin_id, posRef.current)
+          const { elapsed_s, valid, reason } = await api.ping(checkin_id, posRef.current)
           if (elapsed_s >= required_seconds) {
             clearInterval(timer.current)
             const res = await api.finish(checkin_id)
             setState({ phase: 'done', poiId, name: poi.properties.name, ...res })
             onCaptured()
           } else {
-            setState((s) => ({ ...s, elapsed: elapsed_s, valid }))
+            setState((s) => ({ ...s, elapsed: elapsed_s, valid, reason }))
           }
         } catch (e) {
           clearInterval(timer.current)
@@ -82,25 +88,39 @@ function loadPlayer() {
 
 export default function App() {
   const [player, setPlayer] = useState(loadPlayer)
-  if (!player) return <Onboarding onDone={setPlayer} />
-  return <Game player={player} onLogout={() => {
+  const logout = () => {
     localStorage.removeItem('turistak-player')
     localStorage.removeItem('turistak-token')
     setPlayer(null)
     go('')
-  }} />
+  }
+  // Backend token nezná (restart v paměťovém režimu, token z mocku) -> znovu onboarding.
+  useEffect(() => {
+    window.addEventListener('turistak-unauthorized', logout)
+    return () => window.removeEventListener('turistak-unauthorized', logout)
+  }, [])
+  useEffect(() => { if (player) api.me().catch(() => {}) }, [player])
+  if (!player) return <Onboarding onDone={setPlayer} />
+  return <Game player={player} onLogout={logout} />
 }
+
+const OWNERS_REFRESH_MS = 30000
 
 function Game({ player, onLogout }) {
   const [pois, setPois] = useState([])
+  const [loadError, setLoadError] = useState(null)
   const [owners, setOwners] = useState({})
   const [position, setPosition] = usePosition()
   const [selectedId, setSelectedId] = useState(null)
   const route = useRoute()
 
-  useEffect(() => { loadPois().then(setPois) }, [])
-  const refreshOwners = () => api.poiOwners().then(setOwners)
-  useEffect(() => { refreshOwners() }, [])
+  useEffect(() => { loadPois().then(setPois, (e) => setLoadError(e.message)) }, [])
+  const refreshOwners = () => api.poiOwners().then(setOwners, (e) => console.warn('owners', e.message))
+  useEffect(() => {
+    refreshOwners()
+    const id = setInterval(refreshOwners, OWNERS_REFRESH_MS)
+    return () => clearInterval(id)
+  }, [])
   const checkin = useCheckin(position, refreshOwners)
 
   const poiById = (id) => pois.find((f) => f.properties.id === id)
@@ -125,6 +145,7 @@ function Game({ player, onLogout }) {
         setSelectedId={setSelectedId}
         checkin={checkin}
       />
+      {loadError && <div className="overlay toast err">{loadError}</div>}
       <nav className="navbar">
         <button onClick={() => go('zebricek')}><Icon name="leaderboard" /><br />Žebříček</button>
         <button onClick={() => go('udalosti')}><Icon name="timer" /><br />Události</button>
@@ -204,11 +225,17 @@ function MapPage({ pois, owners, position, setPosition, selected, setSelectedId,
             <>
               <b>{cs.name}</b><br />
               <progress max={cs.required} value={cs.elapsed} /> {cs.elapsed} / {cs.required} s
-              {!cs.valid && <div className="err">Jsi mimo 100 m nebo máš slabé GPS – odpočet stojí.</div>}
+              {!cs.valid && <div className="err">{PING_REASONS[cs.reason] || PING_REASONS.default} Odpočet stojí.</div>}
               <button onClick={checkin.cancel}>zrušit</button>
             </>
           )}
-          {cs.phase === 'done' && <><Icon name="celebration" /> {cs.name}: +{cs.awarded_points} b., tým má {cs.team_score} b. <button onClick={checkin.cancel}>ok</button></>}
+          {cs.phase === 'done' && (
+            <>
+              <Icon name="celebration" /> {cs.name}: +{cs.awarded_points} b.{cs.multiplier > 1 && ` (×${cs.multiplier})`}, tým má {cs.team_score} b.
+              {cs.new_badges?.length > 0 && <div><Icon name="military_tech" /> Nový odznak: {cs.new_badges.map((b) => b.name).join(', ')}</div>}
+              <button onClick={checkin.cancel}>ok</button>
+            </>
+          )}
           {cs.phase === 'error' && <span className="err">{cs.msg}</span>}
         </div>
       )}

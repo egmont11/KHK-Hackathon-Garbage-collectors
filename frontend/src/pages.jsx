@@ -18,6 +18,7 @@ export function PoiInfoPage({ poi, owner }) {
     api.teams().then(setTeams)
   }, [p.id])
   const holder = stats?.last_team || owner
+  const hasPoints = Object.values(stats?.teams || {}).some((t) => t.points != null) // backend vrací jen počty návštěv
 
   return (
     <>
@@ -27,14 +28,14 @@ export function PoiInfoPage({ poi, owner }) {
       <h3>Týmy na tomto místě (tato sezóna)</h3>
       <p>{holder ? <>Místo drží <TeamBadge team={holder} /></> : 'Místo zatím nikdo nezabral.'}</p>
       <table>
-        <thead><tr><th>Tým</th><th>Body tady</th><th>Návštěvy</th><th>Celkem v sezóně</th><th>Hráči</th></tr></thead>
+        <thead><tr><th>Tým</th>{hasPoints && <th>Body tady</th>}<th>Návštěvy</th><th>Celkem v sezóně</th><th>Hráči</th></tr></thead>
         <tbody>
           {Object.keys(TEAMS).map((t) => {
             const total = teams.find((x) => x.team === t)
             return (
               <tr key={t}>
                 <td><TeamBadge team={t} /></td>
-                <td>{stats?.teams?.[t]?.points ?? '–'}</td>
+                {hasPoints && <td>{stats.teams[t].points}</td>}
                 <td>{stats?.teams?.[t]?.visits ?? '–'}</td>
                 <td>{total?.score ?? '–'}</td>
                 <td>{total?.members ?? '–'}</td>
@@ -109,9 +110,10 @@ export function TransportPage({ poi, position }) {
 export function LeaderboardPage() {
   const [teams, setTeams] = useState([])
   const [season, setSeason] = useState(null)
+  const [history, setHistory] = useState([])
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
-    const load = () => { api.teams().then(setTeams); api.currentSeason().then(setSeason) }
+    const load = () => { api.teams().then(setTeams); api.currentSeason().then(setSeason); api.seasonHistory().then(setHistory) }
     load()
     const id = setInterval(load, 10000)
     const tick = setInterval(() => setNow(Date.now()), 1000)
@@ -125,9 +127,21 @@ export function LeaderboardPage() {
     <>
       <PageHeader title={`Žebříček ${season?.season_id || ''}`} />
       <ol>
-        {teams.map((t) => <li key={t.team}><TeamBadge team={t.team} /> {t.score} b. ({t.members} hráčů)</li>)}
+        {[...teams].sort((a, b) => b.score - a.score).map((t) => <li key={t.team}><TeamBadge team={t.team} /> {t.score} b. ({t.members} hráčů)</li>)}
       </ol>
       {season && <p>Konec sezóny za {d} d {h} h {m} min</p>}
+      {history.length > 0 && (
+        <>
+          <h3>Minulé sezóny</h3>
+          <ul>
+            {history.map((s) => (
+              <li key={s.season_id}>
+                {s.season_id}: {s.ranking[0] ? <>vyhrál <TeamBadge team={s.ranking[0].team} /> ({s.ranking[0].score} b.)</> : 'bez vítěze'}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </>
   )
 }
@@ -141,6 +155,14 @@ export function EventsPage({ pois, position, onShow }) {
       <PageHeader title="Události" />
       {events.length === 0 && <p>Teď neběží žádná událost.</p>}
       {events.map((e) => {
+        if (e.type === 'daily_category') {
+          return (
+            <div key={e.id} className="card">
+              <b>Dnes: {e.category_label} za ×{e.multiplier} bodů</b>
+              <div>Platí pro všech {e.poi_count} míst této kategorie do {new Date(e.ends_at).toLocaleString('cs')}.</div>
+            </div>
+          )
+        }
         const poi = pois.find((f) => f.properties.id === e.poi_id)
         if (!poi) return null
         const p = poi.properties
@@ -149,7 +171,7 @@ export function EventsPage({ pois, position, onShow }) {
         return (
           <div key={e.id} className="card">
             <b>Do {new Date(e.ends_at).toLocaleDateString('cs')} navštiv {p.name}</b>
-            <div>×{e.multiplier} bodů = {p.points * e.multiplier} b. · {p.municipality}{dist != null && ` · ${formatDistance(dist)}`}</div>
+            <div>×{e.multiplier} bodů = {Math.round(p.points * e.multiplier)} b. · {p.municipality}{dist != null && ` · ${formatDistance(dist)}`}</div>
             <button onClick={() => onShow(p.id)}>Ukázat na mapě</button>
           </div>
         )
@@ -172,12 +194,16 @@ const BADGES = [
 
 export function ProfilePage({ player, pois, onLogout }) {
   const [checkins, setCheckins] = useState([])
-  useEffect(() => { api.myCheckins().then(setCheckins) }, [])
+  const [serverBadges, setServerBadges] = useState(null) // odznaky z backendu, null = spočítat lokálně
+  useEffect(() => { api.profile().then(({ checkins, badges }) => { setCheckins(checkins); setServerBadges(badges) }) }, [])
   const rows = checkins
     .map((c) => ({ c, p: pois.find((f) => f.properties.id === c.poi_id)?.properties }))
     .filter((r) => r.p)
   const visited = rows.map((r) => r.p)
   const total = checkins.reduce((a, c) => a + c.awarded_points, 0)
+  const badges = serverBadges
+    ? serverBadges.map((b) => ({ id: b.id, label: `${b.name} – ${b.description}`, have: b.progress, need: b.target }))
+    : BADGES.map((b) => ({ ...b, have: b.count ? b.count(visited) : visited.filter(b.test).length }))
 
   return (
     <>
@@ -187,10 +213,9 @@ export function ProfilePage({ player, pois, onLogout }) {
 
       <h3>Odznaky</h3>
       <ul className="badges">
-        {BADGES.map((b) => {
-          const have = b.count ? b.count(visited) : visited.filter(b.test).length
-          const done = have >= b.need
-          return <li key={b.id} className={done ? '' : 'locked'}><Icon name={done ? 'military_tech' : 'lock'} /> {b.label} ({Math.min(have, b.need)}/{b.need})</li>
+        {badges.map(({ id, label, have, need }) => {
+          const done = have >= need
+          return <li key={id} className={done ? '' : 'locked'}><Icon name={done ? 'military_tech' : 'lock'} /> {label} ({Math.min(have, need)}/{need})</li>
         })}
       </ul>
 
@@ -200,6 +225,7 @@ export function ProfilePage({ player, pois, onLogout }) {
       <h3>Nastavení</h3>
       <button onClick={onLogout}>Odhlásit</button>{' '}
       {usingMock && <button onClick={() => { resetMock(); location.reload() }}>Reset mock dat</button>}
+      {!usingMock && <p><a href="/dashboard" target="_blank" rel="noreferrer">Dashboard pro kraj</a></p>}
     </>
   )
 }

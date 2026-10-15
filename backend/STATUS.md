@@ -41,7 +41,7 @@ Scope taken from [ROZDELENI.md](../ROZDELENI.md) (Backend + hra) and the role C 
 | Responsibility | Status | Notes |
 |---|---|---|
 | Demo scenario | ❌ | Suggested backend settings: `CHECKIN_SECONDS=10`, `DEMO_SEASON_SECONDS=300`, `npm run demo` |
-| Frontend connected to the API | ❌ | Karel's part. Stats now need an admin token (`POST /api/admin/login`), or he can just link to `/dashboard` |
+| Frontend connected to the API | ✅ | Vite proxies `/api` and `/dashboard` to `localhost:3001` (`BACKEND_URL` to override); `?mock` or `VITE_MOCK=1` keeps the in-browser mock |
 | Run on a team member's machine | ❌ | Tested only in the cloud sandbox (Node 22 + PostgreSQL 16), not yet on Windows |
 | Hosting for the demo | ❌ | Not set up |
 | Bug fixes during the demo | – | Ongoing |
