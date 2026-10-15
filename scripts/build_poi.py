@@ -30,6 +30,7 @@ BASE = "https://services6.arcgis.com/ogJAiK65nXL1mXAW/arcgis/rest/services"
 # --- Konfigurace (ladit tady) -------------------------------------------------
 CONFIG = {
     "dedup_m": 75,           # stejné jméno a blíž než tohle = jedno POI
+    "colocated_m": 5,        # různá jména, ale blíž než tohle = jedno místo (cedule by se na mapě překrývaly)
     "nkp_match_m": 150,      # NKP shoda podle vzdálenosti (jen u památek)
     "bbox": (15.0, 49.9, 16.9, 50.9),  # záložní hranice kraje (lon/lat)
     "points": {
@@ -339,6 +340,7 @@ def map_feature(f, service, category, label, group):
         "tp_id": as_code(p.get("ds_id")),
         "is_nkp": category == "nkp",
         "also_in": [],
+        "merged": [],
         "source": service.replace("_", " "),
     }
 
@@ -487,8 +489,61 @@ def to_feature(p, keys):
             "properties": {k: p[k] for k in keys}}
 
 
+def merge_colocated(pois):
+    """Sloučí POI na stejném místě (do colocated_m) s různými jmény do jednoho.
+
+    Pořadí určuje DATASETS (první vyhrává id, kategorii, polohu a zastávky).
+    Název „A · B“, u 3+ míst „A · B a N další“; ostatní kategorie do also_in.
+    Body = průměr bodů všech sloučených + nejvyšší z nich, max. points.max."""
+    c = CONFIG["points"]
+    grid = Grid([(p["lat"], p["lon"], i) for i, p in enumerate(pois)])
+    parent = list(range(len(pois)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for i, p in enumerate(pois):
+        ky, kx = grid._key(p["lat"], p["lon"])
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                for lat, lon, j in grid.cells.get((ky + dy, kx + dx), ()):
+                    if j > i and haversine(p["lat"], p["lon"], lat, lon) < CONFIG["colocated_m"]:
+                        parent[find(j)] = find(i)
+    groups = {}
+    for i in range(len(pois)):
+        groups.setdefault(find(i), []).append(pois[i])
+    merged = []
+    for members in groups.values():
+        first = members[0]
+        if len(members) == 1:
+            merged.append(first)
+            continue
+        first["merged"] = [{"id": m["id"], "name": m["name"], "category": m["category"]} for m in members]
+        names = [m["name"] for m in members]
+        # název obsažený v jiném (např. „Hankův dům“ v „Hankův dům, městské kulturní zařízení“) vynechat
+        shown = [n for i, n in enumerate(names)
+                 if not any(j != i and norm_name(n) in norm_name(o) and norm_name(n) != norm_name(o) for j, o in enumerate(names))]
+        shown = list(dict.fromkeys(shown))
+        first["name"] = " · ".join(shown) if len(shown) <= 2 else f"{shown[0]} · {shown[1]} a {len(shown) - 2} další"
+        pts = [m["points"] for m in members]
+        first["points"] = int(round(min(sum(pts) / len(pts) + max(pts), c["max"])))
+        for m in members[1:]:
+            for cat in [m["category"], *m["also_in"]]:
+                if cat != first["category"] and cat not in first["also_in"]:
+                    first["also_in"].append(cat)
+            first["is_nkp"] = first["is_nkp"] or m["is_nkp"]
+            first["web"] = first["web"] or m["web"]
+        others = ", ".join(names[1:])
+        first["description"] = f"{first['description']} Na místě také: {others}." if first["description"] else f"Na místě také: {others}."
+        merged.append(first)
+    print(f"POI na stejném místě sloučeny: {len(pois) - len(merged)} (skupin {sum(1 for g in groups.values() if len(g) > 1)})")
+    return merged
+
+
 POI_KEYS = ["id", "name", "category", "category_label", "group", "description", "municipality",
-            "municipality_code", "orp_code", "web", "tp_id", "is_nkp", "also_in", "nearest_stop",
+            "municipality_code", "orp_code", "web", "tp_id", "is_nkp", "also_in", "merged", "nearest_stop",
             "nearest_bus", "nearest_train", "idos_url", "points", "source"]
 
 
@@ -535,6 +590,7 @@ def main():
     fix_admin_codes(pois, stops)
     attach_stops(pois, stops)
     score(pois)
+    pois = merge_colocated(pois)
     validate(pois)
 
     pois.sort(key=lambda p: p["id"])
