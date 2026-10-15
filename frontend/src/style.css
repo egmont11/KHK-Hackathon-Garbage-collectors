@@ -49,3 +49,69 @@ button.link { border: 0; background: none; font-size: 16px; }
 .group-chips { display: flex; gap: 4px; }
 .group-chips button { flex: 1; height: 34px; border: 1px solid #ccc; border-radius: 6px; background: #fff; padding: 0; }
 .group-chips button.active { background: #333; border-color: #333; color: #fff; }
+
+/* --- Stav hry: lišty nad nav barem (offline, poloha, nová sezóna) --- */
+.banner { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: #fff7d6; border-top: 1px solid #e8d48a; font-size: 13px; }
+.banner.err { background: #fde8e8; border-color: #f0b4b4; }
+.banner.info { background: #e6f0fb; border-color: #a9c6ea; }
+.banner .link { margin-left: auto; }
+
+.chip { display: inline-block; padding: 0 6px; border-radius: 10px; font-size: 12px; background: #eee; margin-left: 4px; }
+.chip.bonus { background: #F2C230; color: #222; font-weight: bold; }
+.bonus-card { background: #fff8dc; border-color: #F2C230; }
+.visited-note { color: #2E8B3E; }
+.card.done { opacity: .7; }
+.poi-meta { font-size: 13px; margin-top: 2px; }
+.filter-btn { position: absolute; }
+.filter-btn .count { position: absolute; top: -2px; right: -2px; min-width: 16px; height: 16px; border-radius: 8px; background: #D7263D; color: #fff; font-size: 11px; line-height: 16px; }
+
+/* Marker: bonus = žlutý štítek ×N + pulzující okraj, zabráno mnou = fajfka */
+.poi-marker { position: relative; }
+.poi-marker.bonus { border-color: #F2C230; animation: bonus-pulse 1.6s ease-in-out infinite; }
+.poi-marker.visited { opacity: .75; }
+.marker-tag { position: absolute; top: -9px; right: -12px; background: #F2C230; color: #222; font-size: 10px; line-height: 14px; padding: 0 3px; border-radius: 7px; box-shadow: 0 0 2px rgba(0, 0, 0, .5); }
+.poi-marker .marker-check { position: absolute; bottom: -6px; right: -6px; width: 14px; height: 14px; border-radius: 50%; background: #fff; color: #2E8B3E; font-size: 12px; line-height: 14px; font-weight: bold; box-shadow: 0 0 2px rgba(0, 0, 0, .5); }
+@keyframes bonus-pulse { 50% { box-shadow: 0 0 0 5px rgba(242, 194, 48, .55); } }
+
+/* --- Check-in: kruhový odpočet --- */
+.checkin-run { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.ring { width: 110px; height: 110px; flex: none; }
+.ring-track { fill: none; stroke: #eee; stroke-width: 10; }
+.ring-bar { fill: none; stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset .2s linear; }
+.ring.paused .ring-bar { stroke: #bbb; }
+.ring-num { font-size: 34px; font-weight: bold; text-anchor: middle; }
+.ring-unit { font-size: 12px; text-anchor: middle; fill: #666; }
+
+/* --- Check-in: oslava úspěchu --- */
+.checkin.center { top: 50%; left: 50%; right: auto; transform: translate(-50%, -50%); width: min(320px, 90vw); text-align: center; overflow: hidden; }
+.success { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 4px 4px; animation: pop .45s cubic-bezier(.2, 1.6, .5, 1) both; }
+.success-flag { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; background: var(--team);
+  border: 4px solid #fff; box-shadow: 0 0 0 3px var(--team); animation: flag-wave .9s ease-in-out .3s 2; }
+.success-flag .material-symbols-outlined { font-size: 36px; }
+.success-points { font-size: 32px; font-weight: 800; }
+.burst { position: absolute; top: 44px; left: 50%; width: 0; height: 0; }
+.burst i { position: absolute; width: 8px; height: 8px; margin: -4px; border-radius: 2px; transform: rotate(var(--a)) translateY(0); opacity: 0; animation: burst 1s ease-out .15s forwards; }
+.new-badges { display: flex; flex-direction: column; gap: 4px; }
+.badge-chip { background: #fff3c4; padding: 2px 8px; opacity: 0; animation: pop .4s ease-out forwards; }
+@keyframes pop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes flag-wave { 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
+@keyframes burst { 0% { opacity: 1; transform: rotate(var(--a)) translateY(0); } 100% { opacity: 0; transform: rotate(var(--a)) translateY(-90px); } }
+
+/* --- Podstránky --- */
+.team-bar { display: flex; height: 20px; border-radius: 10px; overflow: hidden; color: #fff; font-size: 12px; line-height: 20px; text-align: center; }
+.score-bar { height: 8px; border-radius: 4px; background: #eee; overflow: hidden; margin: 2px 0; }
+.score-bar.small { height: 4px; width: 120px; }
+.score-bar span { display: block; height: 100%; background: #2E8B3E; transition: width .5s; }
+.leaderboard { padding-left: 20px; }
+.leaderboard li { margin-bottom: 10px; }
+.leaderboard li.mine { font-weight: bold; }
+.badges { list-style: none; padding: 0; }
+.badges li { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #f2f2f2; }
+.badges li > div { flex: 1; }
+.badges li.earned .material-symbols-outlined { color: #c9a227; }
+.visits .link { padding: 0; font-size: inherit; text-decoration: underline; color: inherit; }
+
+@media (prefers-reduced-motion: reduce) {
+  .success, .success-flag, .burst i, .badge-chip, .poi-marker.bonus { animation: none; opacity: 1; }
+  .burst { display: none; }
+}
