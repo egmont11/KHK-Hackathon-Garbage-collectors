@@ -32,7 +32,7 @@ FeatureCollection, geometrie `Point` v **EPSG:4326, pořadí [lon, lat]**. Prope
 | `name` | string | název |
 | `category` | string | slug kategorie (viz tabulka v 2.2), např. `hrady`, `rozhledny` |
 | `category_label` | string | česky, např. „Hrady“ |
-| `group` | string | nadkategorie: `pamatky`, `priroda`, `kultura`, `sport`, `gastro`, `sluzby`, `ostatni` |
+| `group` | string | nadkategorie: `pamatky`, `priroda`, `kultura`, `sport`, `gastro`, `sluzby` |
 | `description` | string\|null | popis (oříznout HTML a whitespace) |
 | `municipality` | string\|null | název obce |
 | `municipality_code` | string\|null | kód obce ČSÚ |
@@ -117,7 +117,7 @@ Týmy (ID neměnit): `hory` = Hory, červená `#D7263D`; `reky` = Řeky, modrá 
 | Kulturní domy a kongresová centra | `cccf864fdc654c3fae39a54ed20c2183` | `Kulturn%C3%AD_domy/FeatureServer` | kulturni_domy / kultura |
 | Hudební kluby a festival parky | `f16bb2cb44c64ee9882eefaa3c263dd6` | `Hudebn%C3%AD_kluby_a_festival_parky/FeatureServer` | kluby / kultura |
 | Knihovny | `441d3dc35a064a45940f12f10f1d04ce` | `Knihovny/FeatureServer` | knihovny / kultura (434 – volitelná vrstva) |
-| Zábavní centra | `f239c6222745417ba617c8d54afad1ad` | `Z%C3%A1bavn%C3%AD_centra/FeatureServer` | zabava / ostatni |
+| Zábavní centra | `f239c6222745417ba617c8d54afad1ad` | `Z%C3%A1bavn%C3%AD_centra/FeatureServer` | zabava / sport |
 | Infocentra | `82ef86e3f1ae448ba9ce25127f95e4f5` | `Infocentra/FeatureServer` | infocentra / sluzby |
 | Kempy | `12a0abafaacf4db6974b823bf41f9302` | `Kempy/FeatureServer` | kempy / sluzby |
 | Služby (hotely, wellness) | `91f96204064a41b58814cafbe30ffec0` | `Slu%C5%BEby/FeatureServer` | sluzby / sluzby |

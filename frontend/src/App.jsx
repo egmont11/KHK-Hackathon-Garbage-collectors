@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import MapView from './MapView.jsx'
-import { api, loadPois, resetMock, usingMock } from './api.js'
+import { api, loadPois } from './api.js'
 import { TEAMS, distanceM, formatDistance } from './geo.js'
+import { DEMO, Icon, TeamBadge, go } from './ui.jsx'
+import { GROUPS, groupIcon } from './groups.js'
+import { EventsPage, LeaderboardPage, PoiInfoPage, ProfilePage, TransportPage } from './pages.jsx'
 
-const DEMO = new URLSearchParams(location.search).has('demo')
 const PING_EVERY_MS = 5000
+const CHECKIN_RADIUS_M = 100
 
 function usePosition() {
   const [position, setPosition] = useState(null)
@@ -20,28 +23,130 @@ function usePosition() {
   return [position, setPosition]
 }
 
+// Jednoduchý hash router: #/info/<id>, #/doprava/<id>, #/zebricek, #/udalosti, #/profil
+function useRoute() {
+  const parse = () => {
+    const [page = '', id] = location.hash.replace(/^#\/?/, '').split('/')
+    return { page, id: id && decodeURIComponent(id) }
+  }
+  const [route, setRoute] = useState(parse)
+  useEffect(() => {
+    const onHash = () => setRoute(parse())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+  return route
+}
+
+// Check-in žije v App, aby běžel dál i při přepnutí na podstránku.
+function useCheckin(position, onCaptured) {
+  const [state, setState] = useState({ phase: 'idle' }) // idle | running | done | error
+  const posRef = useRef(position)
+  posRef.current = position
+  const timer = useRef(null)
+  useEffect(() => () => clearInterval(timer.current), [])
+
+  async function start(poi) {
+    clearInterval(timer.current)
+    const poiId = poi.properties.id
+    try {
+      const { checkin_id, required_seconds } = await api.startCheckin({ poi_id: poiId, ...posRef.current })
+      setState({ phase: 'running', poiId, name: poi.properties.name, elapsed: 0, required: required_seconds, valid: true })
+      timer.current = setInterval(async () => {
+        try {
+          const { elapsed_s, valid } = await api.ping(checkin_id, posRef.current)
+          if (elapsed_s >= required_seconds) {
+            clearInterval(timer.current)
+            const res = await api.finish(checkin_id)
+            setState({ phase: 'done', poiId, name: poi.properties.name, ...res })
+            onCaptured()
+          } else {
+            setState((s) => ({ ...s, elapsed: elapsed_s, valid }))
+          }
+        } catch (e) {
+          clearInterval(timer.current)
+          setState({ phase: 'error', poiId, msg: e.message })
+        }
+      }, PING_EVERY_MS)
+    } catch (e) {
+      setState({ phase: 'error', poiId, msg: e.message })
+    }
+  }
+  const cancel = () => { clearInterval(timer.current); setState({ phase: 'idle' }) }
+  return { state, start, cancel }
+}
+
 function loadPlayer() {
   try { return JSON.parse(localStorage.getItem('turistak-player')) } catch { return null }
 }
 
 export default function App() {
+  const [player, setPlayer] = useState(loadPlayer)
+  if (!player) return <Onboarding onDone={setPlayer} />
+  return <Game player={player} onLogout={() => {
+    localStorage.removeItem('turistak-player')
+    localStorage.removeItem('turistak-token')
+    setPlayer(null)
+    go('')
+  }} />
+}
+
+function Game({ player, onLogout }) {
   const [pois, setPois] = useState([])
   const [owners, setOwners] = useState({})
-  const [player, setPlayer] = useState(loadPlayer)
   const [position, setPosition] = usePosition()
   const [selectedId, setSelectedId] = useState(null)
-  const [filters, setFilters] = useState({ q: '', group: '', category: '', minPoints: 0, maxKm: '', nearStop: false })
+  const route = useRoute()
 
   useEffect(() => { loadPois().then(setPois) }, [])
   const refreshOwners = () => api.poiOwners().then(setOwners)
   useEffect(() => { refreshOwners() }, [])
+  const checkin = useCheckin(position, refreshOwners)
 
-  const groups = useMemo(() => [...new Set(pois.map((f) => f.properties.group))].sort(), [pois])
-  const categories = useMemo(() => {
-    const m = new Map()
-    for (const f of pois) if (!filters.group || f.properties.group === filters.group) m.set(f.properties.category, f.properties.category_label)
-    return [...m].sort((a, b) => a[1].localeCompare(b[1], 'cs'))
-  }, [pois, filters.group])
+  const poiById = (id) => pois.find((f) => f.properties.id === id)
+  const routePoi = route.id && poiById(route.id)
+  const showOnMap = (id) => { setSelectedId(id); go('') }
+
+  let page = null
+  if (route.page === 'info' && routePoi) page = <PoiInfoPage poi={routePoi} owner={owners[routePoi.properties.id]} />
+  if (route.page === 'doprava' && routePoi) page = <TransportPage poi={routePoi} position={position} />
+  if (route.page === 'zebricek') page = <LeaderboardPage />
+  if (route.page === 'udalosti') page = <EventsPage pois={pois} position={position} onShow={showOnMap} />
+  if (route.page === 'profil') page = <ProfilePage player={player} pois={pois} onLogout={onLogout} />
+
+  return (
+    <div className="app">
+      <MapPage
+        pois={pois}
+        owners={owners}
+        position={position}
+        setPosition={setPosition}
+        selected={selectedId && poiById(selectedId)}
+        setSelectedId={setSelectedId}
+        checkin={checkin}
+      />
+      <nav className="navbar">
+        <button onClick={() => go('zebricek')}><Icon name="leaderboard" /><br />Žebříček</button>
+        <button onClick={() => go('udalosti')}><Icon name="timer" /><br />Události</button>
+        <button onClick={() => go('profil')}><Icon name="person" /><br />Profil</button>
+      </nav>
+      {page && <div className="page">{page}</div>}
+    </div>
+  )
+}
+
+const EMPTY_FILTERS = { q: '', group: '', category: '', minPoints: 0, maxKm: '', nearStop: false }
+
+function MapPage({ pois, owners, position, setPosition, selected, setSelectedId, checkin }) {
+  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [toast, setToast] = useState(null)
+  const toastTimer = useRef(null)
+  const flash = (msg) => {
+    setToast(msg)
+    clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), 3000)
+  }
 
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase()
@@ -60,72 +165,106 @@ export default function App() {
     })
   }, [pois, filters, position])
 
-  const selected = pois.find((f) => f.properties.id === selectedId)
-  const setF = (k) => (e) => setFilters({ ...filters, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
+  const sel = selected?.properties
+  const dist = selected && position
+    ? distanceM(position.lat, position.lon, selected.geometry.coordinates[1], selected.geometry.coordinates[0])
+    : null
+  const inRange = dist != null && dist <= CHECKIN_RADIUS_M
+  const cs = checkin.state
+  const running = cs.phase === 'running'
 
-  if (!player) return <Onboarding onDone={setPlayer} />
+  function claim() {
+    if (!inRange) return flash(position ? `Jsi mimo dosah (${formatDistance(dist)}, potřeba do ${CHECKIN_RADIUS_M} m).` : 'Neznám tvoji polohu.')
+    checkin.start(selected)
+  }
 
   return (
-    <div className="app">
-      <header>
-        <b>Turisťák</b> – Objevuj, dobývej, poznávej kraj.
-        {usingMock && <small> [mock API]</small>}
-        {DEMO && <small> [demo: klikni do mapy = tvoje poloha]</small>}
-      </header>
+    <div className="map-wrap">
       <MapView
         pois={filtered}
         owners={owners}
-        selectedId={selectedId}
+        selectedId={sel?.id}
         onSelect={setSelectedId}
         position={position}
         demo={DEMO}
         onDemoClick={(lat, lon) => setPosition({ lat, lon, accuracy_m: 5 })}
       />
-      <aside>
-        <p>
-          Hráč <b>{player.name}</b>, tým <TeamBadge team={player.team} />{' '}
-          <button onClick={() => { localStorage.removeItem('turistak-player'); localStorage.removeItem('turistak-token'); setPlayer(null) }}>odhlásit</button>
-        </p>
-        <p>Poloha: {position ? `${position.lat.toFixed(5)}, ${position.lon.toFixed(5)} (±${Math.round(position.accuracy_m)} m)` : DEMO ? 'klikni do mapy' : 'čekám na GPS…'}</p>
+      {DEMO && <div className="overlay demo-hint">demo: klik do mapy = tvoje poloha</div>}
 
-        {selected && (
-          <Detail
-            key={selected.properties.id}
-            poi={selected}
-            position={position}
-            player={player}
-            owner={owners[selected.properties.id]}
-            onClose={() => setSelectedId(null)}
-            onCaptured={refreshOwners}
-          />
-        )}
+      <button className="overlay round filter-btn" onClick={() => setFilterOpen(!filterOpen)} aria-label="Filtr">
+        <Icon name="filter_alt" />
+      </button>
+      {filterOpen && (
+        <Filters pois={pois} filters={filters} setFilters={setFilters} count={filtered.length} position={position} />
+      )}
 
-        <fieldset>
-          <legend>Filtry ({filtered.length} / {pois.length})</legend>
-          <input placeholder="hledat název / obec" value={filters.q} onChange={setF('q')} />
-          <select value={filters.group} onChange={(e) => setFilters({ ...filters, group: e.target.value, category: '' })}>
-            <option value="">všechny skupiny</option>
-            {groups.map((g) => <option key={g} value={g}>{g}</option>)}
-          </select>
-          <select value={filters.category} onChange={setF('category')}>
-            <option value="">všechny kategorie</option>
-            {categories.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
-          </select>
-          <label>min. body: {filters.minPoints} <input type="range" min="0" max="100" step="5" value={filters.minPoints} onChange={(e) => setFilters({ ...filters, minPoints: +e.target.value })} /></label>
-          <label>do km ode mě: <input type="number" min="0" style={{ width: 60 }} value={filters.maxKm} onChange={setF('maxKm')} disabled={!position} /></label>
-          <label><input type="checkbox" checked={filters.nearStop} onChange={setF('nearStop')} /> zastávka do 500 m</label>
-        </fieldset>
+      {(running || cs.phase === 'done' || (cs.phase === 'error' && cs.poiId === sel?.id)) && (
+        <div className="overlay checkin">
+          {running && (
+            <>
+              <b>{cs.name}</b><br />
+              <progress max={cs.required} value={cs.elapsed} /> {cs.elapsed} / {cs.required} s
+              {!cs.valid && <div className="err">Jsi mimo 100 m nebo máš slabé GPS – odpočet stojí.</div>}
+              <button onClick={checkin.cancel}>zrušit</button>
+            </>
+          )}
+          {cs.phase === 'done' && <><Icon name="celebration" /> {cs.name}: +{cs.awarded_points} b., tým má {cs.team_score} b. <button onClick={checkin.cancel}>ok</button></>}
+          {cs.phase === 'error' && <span className="err">{cs.msg}</span>}
+        </div>
+      )}
+      {toast && <div className="overlay toast">{toast}</div>}
 
-        <Leaderboard />
-        {usingMock && <button onClick={() => { resetMock(); location.reload() }}>reset mock dat</button>}
-      </aside>
+      {sel && (
+        <div className="overlay poi-actions">
+          <div className="poi-label">
+            {sel.name} · {sel.points} b.{dist != null && ` · ${formatDistance(dist)}`}
+            <button className="link" onClick={() => setSelectedId(null)} aria-label="Zrušit výběr"><Icon name="close" /></button>
+          </div>
+          <div className="buttons">
+            <button className="round" onClick={() => go('doprava', sel.id)} aria-label="Doprava"><Icon name="directions_bus" /></button>
+            <button className="round" onClick={() => go('info', sel.id)} aria-label="Informace"><Icon name="question_mark" /></button>
+            <button className={`claim ${inRange ? '' : 'disabled'}`} onClick={claim} disabled={running}>Zabrat</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function TeamBadge({ team }) {
-  const t = TEAMS[team]
-  return <span style={{ color: '#fff', background: t.color, padding: '0 6px', borderRadius: 4 }}>{t.label}</span>
+function Filters({ pois, filters, setFilters, count, position }) {
+  const groups = useMemo(() => {
+    const present = new Set(pois.map((f) => f.properties.group))
+    return [...Object.keys(GROUPS).filter((g) => present.has(g)), ...[...present].filter((g) => !GROUPS[g])]
+  }, [pois])
+  const categories = useMemo(() => {
+    const m = new Map()
+    for (const f of pois) if (!filters.group || f.properties.group === filters.group) m.set(f.properties.category, f.properties.category_label)
+    return [...m].sort((a, b) => a[1].localeCompare(b[1], 'cs'))
+  }, [pois, filters.group])
+  const setF = (k) => (e) => setFilters({ ...filters, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
+  return (
+    <div className="overlay filter-panel">
+      <b>Filtr ({count} / {pois.length})</b>
+      <input placeholder="hledat název / obec" value={filters.q} onChange={setF('q')} />
+      <div className="group-chips">
+        {groups.map((g) => (
+          <button key={g} title={GROUPS[g]?.label ?? g} className={filters.group === g ? 'active' : ''}
+            onClick={() => setFilters({ ...filters, group: filters.group === g ? '' : g, category: '' })}>
+            <Icon name={groupIcon(g)} />
+          </button>
+        ))}
+      </div>
+      {filters.group && <small>{GROUPS[filters.group]?.label}</small>}
+      <select value={filters.category} onChange={setF('category')}>
+        <option value="">všechny kategorie</option>
+        {categories.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
+      </select>
+      <label>min. body: {filters.minPoints} <input type="range" min="0" max="100" step="5" value={filters.minPoints} onChange={(e) => setFilters({ ...filters, minPoints: +e.target.value })} /></label>
+      <label>do km ode mě: <input type="number" min="0" style={{ width: 60 }} value={filters.maxKm} onChange={setF('maxKm')} disabled={!position} /></label>
+      <label><input type="checkbox" checked={filters.nearStop} onChange={setF('nearStop')} /> zastávka do 500 m</label>
+      <button onClick={() => setFilters(EMPTY_FILTERS)}>zrušit filtr</button>
+    </div>
+  )
 }
 
 function Onboarding({ onDone }) {
@@ -149,116 +288,12 @@ function Onboarding({ onDone }) {
       <fieldset>
         <legend>Jak se jmenuješ a za koho hraješ?</legend>
         <input required placeholder="jméno" value={name} onChange={(e) => setName(e.target.value)} />
-        {Object.entries(TEAMS).map(([id, t]) => (
+        {Object.entries(TEAMS).map(([id]) => (
           <label key={id}><input type="radio" name="team" checked={team === id} onChange={() => setTeam(id)} /> <TeamBadge team={id} /></label>
         ))}
         <button>Hrát</button>
         {error && <p className="err">{error}</p>}
       </fieldset>
     </form>
-  )
-}
-
-function Detail({ poi, position, player, owner, onClose, onCaptured }) {
-  const p = poi.properties
-  const [lon, lat] = poi.geometry.coordinates
-  const dist = position ? distanceM(position.lat, position.lon, lat, lon) : null
-  const stop = p.nearest_stop
-  return (
-    <fieldset className="detail">
-      <legend>{p.name} <button onClick={onClose}>×</button></legend>
-      <p>
-        <b>{p.points} b.</b> · {p.category_label}{p.is_nkp && ' · NKP'} · {p.municipality || '–'}
-        {dist != null && <> · {formatDistance(dist)} ode mě</>}
-        {owner && <> · drží <TeamBadge team={owner} /></>}
-      </p>
-      {p.description && <p className="desc">{p.description}</p>}
-      {p.web && <p><a href={p.web} target="_blank" rel="noreferrer">{p.web}</a></p>}
-      {stop && (
-        <p>
-          🚏 {stop.type === 'train' ? 'vlak' : 'bus'} <b>{stop.name}</b> ({formatDistance(stop.distance_m)}){' '}
-          <a href={p.idos_url} target="_blank" rel="noreferrer">Najít spoj (IDOS)</a>
-          {p.nearest_train && stop.type !== 'train' && <><br />🚆 vlak {p.nearest_train.name} ({formatDistance(p.nearest_train.distance_m)})</>}
-        </p>
-      )}
-      <CheckIn poi={poi} position={position} onCaptured={onCaptured} />
-    </fieldset>
-  )
-}
-
-function CheckIn({ poi, position, onCaptured }) {
-  const [state, setState] = useState({ phase: 'idle' }) // idle | running | done | error
-  const posRef = useRef(position)
-  posRef.current = position
-  const timer = useRef(null)
-  useEffect(() => () => clearInterval(timer.current), [])
-
-  async function start() {
-    if (!posRef.current) return setState({ phase: 'error', msg: 'Neznám tvoji polohu.' })
-    try {
-      const { checkin_id, required_seconds } = await api.startCheckin({ poi_id: poi.properties.id, ...posRef.current })
-      setState({ phase: 'running', elapsed: 0, required: required_seconds, valid: true })
-      timer.current = setInterval(async () => {
-        try {
-          const { elapsed_s, valid } = await api.ping(checkin_id, posRef.current)
-          if (elapsed_s >= required_seconds) {
-            clearInterval(timer.current)
-            const res = await api.finish(checkin_id)
-            setState({ phase: 'done', ...res })
-            onCaptured()
-          } else {
-            setState({ phase: 'running', elapsed: elapsed_s, required: required_seconds, valid })
-          }
-        } catch (e) {
-          clearInterval(timer.current)
-          setState({ phase: 'error', msg: e.message })
-        }
-      }, PING_EVERY_MS)
-    } catch (e) {
-      setState({ phase: 'error', msg: e.message })
-    }
-  }
-
-  if (state.phase === 'running') {
-    return (
-      <div>
-        <progress max={state.required} value={state.elapsed} /> {state.elapsed} / {state.required} s
-        {!state.valid && <p className="err">Jsi mimo 100 m (nebo slabé GPS) – odpočet stojí. Vrať se blíž.</p>}
-        <button onClick={() => { clearInterval(timer.current); setState({ phase: 'idle' }) }}>zrušit</button>
-      </div>
-    )
-  }
-  if (state.phase === 'done') return <p>🎉 Obsazeno! +{state.awarded_points} b., tým má {state.team_score} b.</p>
-  return (
-    <div>
-      <button onClick={start}>Check-in (60 s do 100 m)</button>
-      {state.phase === 'error' && <p className="err">{state.msg}</p>}
-    </div>
-  )
-}
-
-function Leaderboard() {
-  const [teams, setTeams] = useState([])
-  const [season, setSeason] = useState(null)
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const load = () => { api.teams().then(setTeams); api.currentSeason().then(setSeason) }
-    load()
-    const id = setInterval(load, 10000)
-    const tick = setInterval(() => setNow(Date.now()), 1000)
-    return () => { clearInterval(id); clearInterval(tick) }
-  }, [])
-  const left = season ? Math.max(0, new Date(season.ends_at) - now) : 0
-  const d = Math.floor(left / 86400000)
-  const h = Math.floor((left % 86400000) / 3600000)
-  const m = Math.floor((left % 3600000) / 60000)
-  return (
-    <fieldset>
-      <legend>Žebříček {season?.season_id}</legend>
-      <ol>
-        {teams.map((t) => <li key={t.team}><TeamBadge team={t.team} /> {t.score} b. ({t.members} hráčů)</li>)}
-      </ol>
-      {season && <small>Konec sezóny za {d} d {h} h {m} min</small>}
-    </fieldset>
   )
 }
