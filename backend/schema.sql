@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS players (
   token text NOT NULL UNIQUE,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+-- Player accounts: name + password (scrypt). Older players without a password can't log in elsewhere.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS password_hash text;
+CREATE UNIQUE INDEX IF NOT EXISTS players_login_name ON players (lower(name)) WHERE password_hash IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS seasons (
   id text PRIMARY KEY,

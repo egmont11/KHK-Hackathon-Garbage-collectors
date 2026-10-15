@@ -7,7 +7,7 @@
 //   api.live()            -> { [poi_id]: { owner_team, event_multiplier, event_type, bonus_points, visits } }
 //   api.me()              -> { player_id, name, team, season_id, season_points, visited: [{poi_id, points, at}], badges, badge_archive }
 //   api.poiDetail(id)     -> detail z /api/poi/:id (owner_team, team_checkins, visits, last_visited_at, nearest_*_stop, idos_url, event)
-//   api.startCheckin / ping / finish, api.teams, api.currentSeason, api.seasonHistory, api.activeEvents, api.createPlayer
+//   api.startCheckin / ping / finish, api.teams, api.currentSeason, api.seasonHistory, api.activeEvents, api.createPlayer({name, team, password}), api.login({name, password})
 import { distanceM } from './geo.js'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
@@ -71,6 +71,7 @@ const LIVE_FIELDS = ['owner_team', 'event_multiplier', 'event_type', 'bonus_poin
 
 const real = {
   createPlayer: (body) => http('POST', '/api/players', body),
+  login: (body) => http('POST', '/api/players/login', body),
   me: () => http('GET', '/api/players/me'),
   startCheckin: (body) => http('POST', '/api/checkins/start', body),
   ping: (id, body) => http('POST', `/api/checkins/${id}/ping`, body),
@@ -131,12 +132,26 @@ async function bonusFor(poiId) {
 }
 
 const mock = {
-  async createPlayer({ name, team }) {
+  // Mock účty jen pro vývoj bez backendu: heslo leží v localStorage tohoto prohlížeče.
+  async createPlayer({ name, team, password }) {
     const s = load()
+    const key = name.trim().toLocaleLowerCase('cs')
+    if (Object.values(s.players).some((p) => p.name.trim().toLocaleLowerCase('cs') === key)) {
+      throw Object.assign(new Error('Tohle jméno už někdo má. Zvol jiné, nebo se přihlas.'), { code: 'NAME_TAKEN' })
+    }
     const token = randomId()
-    s.players[token] = { player_id: token.slice(0, 8), name, team }
+    s.players[token] = { player_id: token.slice(0, 8), name, team, password }
     save(s)
     return { player_id: s.players[token].player_id, token, name, team }
+  },
+
+  async login({ name, password }) {
+    const s = load()
+    const key = name.trim().toLocaleLowerCase('cs')
+    const entry = Object.entries(s.players).find(([, p]) => p.name.trim().toLocaleLowerCase('cs') === key && p.password === password)
+    if (!entry) throw Object.assign(new Error('Špatné jméno nebo heslo.'), { code: 'INVALID_CREDENTIALS' })
+    const [token, p] = entry
+    return { player_id: p.player_id, token, name: p.name, team: p.team }
   },
 
   async me() {

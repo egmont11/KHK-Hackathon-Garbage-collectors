@@ -57,7 +57,8 @@ All errors are `{"error": {"code", "message"}}`. Check-in endpoints need `Author
 | `GET /api/poi` | GeoJSON. Filters: `bbox=w,s,e,n`, `category=a,b`, `group=a,b`, `min_points`, `max_points`, `near=lat,lon` (+ optional `radius_m`; adds `distance_m`, sorted by distance), `max_stop_m` (stop within N m). `lite=1` returns only id/name/category/group/municipality/points/is_nkp (much smaller payload). `bonus=1` returns only places with an active bonus; `owner=hory,reky,lesy,none` filters by owning team. Live props: `owner_team` (use this for the marker colour), `team_checkins` `{hory, reky, lesy}`, `team_points` `{hory, reky, lesy}` (points earned at the place this season), `top_team` (most points; tie keeps the leader), `last_team`, `visits`, `event_multiplier`, `event_type`, `bonus_points`. |
 | `GET /api/poi/:id` | Detail + `lat`, `lon`, `last_team`, `visits`, `last_visited_at`, `nearest_bus_stop`, `nearest_train_stop`, `idos_url`, `event`. |
 | `GET /api/categories` | Groups and categories with labels and counts (for the filter UI). |
-| `POST /api/players` `{name, team}` | → `{player_id, token, name, team}` |
+| `POST /api/players` `{name, team, password}` | → `{player_id, token, name, team}`. Name unique (case-insensitive) → `409 NAME_TAKEN`; password ≥ 6 chars (scrypt hash) |
+| `POST /api/players/login` `{name, password}` | → `{player_id, token, name, team}` (same token as at registration). Wrong → `401 INVALID_CREDENTIALS`; 5 failures per IP → locked for 1 min (`429`) |
 | `GET /api/players/me` | → name, team, `season_points`, `visited[]` in the current season, `badges` (all badges with `progress`/`target`/`earned`), `badge_archive` (earned badges of earlier seasons). |
 | `GET /api/badges` | badge definitions `{id, name, description, target}` |
 | `POST /api/checkins/start` `{poi_id, lat, lon, accuracy_m}` | → `{checkin_id, required_seconds, valid, distance_m, radius_m, max_ping_gap_s, points, multiplier, reason}` |

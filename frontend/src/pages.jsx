@@ -340,7 +340,7 @@ export function ProfilePage({ player, me, poiById, onShow, onLogout }) {
       )}
 
       <div className="profile-actions">
-        <button className="btn-outline" onClick={() => { if (confirm('Odhlásit? Bez uloženého tokenu se k tomuto hráči už nevrátíš.')) onLogout() }}>
+        <button className="btn-outline" onClick={() => { if (confirm('Odhlásit? Zpátky se přihlásíš jménem a heslem.')) onLogout() }}>
           <Icon name="logout" /> Odhlásit
         </button>
         {usingMock && <button className="btn-outline" onClick={() => { resetMock(); location.reload() }}><Icon name="restart_alt" /> Mock</button>}

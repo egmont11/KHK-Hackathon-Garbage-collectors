@@ -4,6 +4,7 @@
  */
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 
 const port = 3999;
 const base = `http://127.0.0.1:${port}`;
@@ -35,9 +36,17 @@ try {
   const [lon, lat] = poi.geometry.coordinates;
 
   assert.equal((await api("/api/players", { method: "POST", json: { name: "", team: "lesy" } })).status, 400);
-  const player = await api("/api/players", { method: "POST", json: { name: "Tester", team: "lesy" } });
+  assert.equal((await api("/api/players", { method: "POST", json: { name: "Tester", team: "lesy" } })).body.error.code, "INVALID_PASSWORD");
+  const player = await api("/api/players", { method: "POST", json: { name: "Tester", team: "lesy", password: "tajne-heslo" } });
   assert.equal(player.status, 201);
   const token = player.body.token;
+  // Accounts: unique name (case-insensitive) and login with name + password from another device.
+  assert.equal((await api("/api/players", { method: "POST", json: { name: "tester", team: "hory", password: "jine-heslo" } })).body.error.code, "NAME_TAKEN");
+  assert.equal((await api("/api/players/login", { method: "POST", json: { name: "Tester", password: "spatne" } })).status, 401);
+  const playerLogin = await api("/api/players/login", { method: "POST", json: { name: "TESTER", password: "tajne-heslo" } });
+  assert.equal(playerLogin.status, 200);
+  assert.equal(playerLogin.body.token, token);
+  assert.equal(playerLogin.body.team, "lesy");
 
   const far = await api("/api/checkins/start", { method: "POST", token, json: { poi_id: poi.properties.id, lat: lat + 0.01, lon, accuracy_m: 10 } });
   assert.equal(far.body.valid, false);
@@ -106,7 +115,7 @@ try {
 
   // Team battles (cosmetic): most check-ins this season owns the place; on a tie the holder keeps it.
   async function checkInAs(team: string, target: any) {
-    const t = (await api("/api/players", { method: "POST", json: { name: `Hráč ${team}`, team } })).body.token;
+    const t = (await api("/api/players", { method: "POST", json: { name: `Hráč ${team} ${randomUUID().slice(0, 6)}`, team, password: "heslo-123" } })).body.token;
     const [tLon, tLat] = target.geometry.coordinates;
     const st = (await api("/api/checkins/start", { method: "POST", token: t, json: { poi_id: target.properties.id, lat: tLat, lon: tLon, accuracy_m: 10 } })).body;
     for (let i = 0; i < 4; i++) { await sleep(1100); await api(`/api/checkins/${st.checkin_id}/ping`, { method: "POST", token: t, json: { lat: tLat, lon: tLon, accuracy_m: 10 } }); }
