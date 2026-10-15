@@ -46,7 +46,7 @@ GET  /api/teams                                                     -> [{team, s
 GET  /api/events/active                                             -> aktivní quick time eventy
 GET  /api/stats/poi?from=&to=                                       -> agregace pro dashboard kraje
 ```
-Týmy: `red`, `green`, `blue` (názvy a barvy si tým ještě může změnit, ID zůstanou).
+Týmy (ID neměnit): `hory` = Hory, červená `#D7263D`; `reky` = Řeky, modrá `#1E63B5`; `lesy` = Lesy, zelená `#2E8B3E`. Barvy odpovídají turistickému značení KČT (bílá–barva–bílá).
 
 ## 2. Role A – Data
 
@@ -151,6 +151,14 @@ Konstanty dej do jednoho configu, ať se dají ladit.
 - Test: počet POI > 1 500, všechna mají `points` v 10–100, žádné souřadnice mimo bbox kraje, `id` unikátní.
 
 ## 3. Role B – Frontend / mapa
+**Název aplikace:** Turisťák, tagline „Objevuj, dobývej, poznávej kraj.“
+**Vizuální motiv:** turistika + orientační běh. Hravě, ale střídmě, bez maskotů.
+- Podklad mapy: světlý, „papírový“, inspirovaný orientační mapou (bílý les, zelené odstíny hustoty, hnědé vrstevnice, modrá voda). Návrh: MapLibre s vlastním stylem nad OSM vektory, nebo světlé rastrové dlaždice s teplým filtrem.
+- Marker POI: kontrola OB (fialový kroužek `#A626A4`). Zabrané POI má výplň barvou týmu.
+- Detail POI: žlutá cedule rozcestníku (`#F2C230`, tmavý text): název, vzdálenost, body, nejbližší zastávka.
+- Ikona týmu: značka bílá–barva–bílá (vodorovné pruhy).
+- Check-in = „ražení kontroly“: kruhový odpočet 60 s, na konci krátká animace razítka.
+- Font zaoblený a přátelský (Nunito nebo Baloo 2), rohy zaoblené, ikony jednoduché a lineární.
 - PWA (mobil first). Návrh: Vite + React + **MapLibre GL** nebo **Leaflet** + `leaflet.markercluster` (asi 2 000 bodů vyžaduje clustering).
 - Podklad: OpenStreetMap tiles (s atribucí) nebo Mapy.cz API, pokud máte klíč.
 - Obrazovky:
