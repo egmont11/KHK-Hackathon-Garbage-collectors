@@ -1,12 +1,21 @@
-# Gamifikace turismu
-*Tým Garbage Collectors*
+# Krajánek
 
-Hra nad otevřenými daty Královéhradeckého kraje: tým dobývá body zájmu na mapě kraje.
+## Spuštění
 
-- [PLAN.md](PLAN.md): plán pro tým (krátký)
-- [AGENTS.md](AGENTS.md): podrobné zadání pro AI agenty
-- [ROZDELENI.md](ROZDELENI.md): kdo co dělá
-- [docs/data-khk-prehled.md](docs/data-khk-prehled.md): přehled dostupných dat
+Backend (port 3001):
 
+```bash
+cd backend
+npm install
+npm run demo
+```
 
+Frontend (port 5173, v druhém terminálu):
 
+```bash
+cd frontend
+npm install
+npm start
+```
+
+Otevři http://localhost:5173. Demo režim s polohou klikem do mapy: http://localhost:5173/?demo=1
