@@ -8,7 +8,7 @@ Tento dokument je zdroj pravdy pro implementaci. Při práci na úkolu přečti 
 - Povolená data: datakhk.cz a data.gov.cz, ale jen data pro Královéhradecký kraj (CZ052). Celostátní sady je nutné filtrovat na kraj.
 - Herní princip:
   - 3 týmy. Hráč dojde k POI a 60 s zůstane do 100 m od něj. Tým dostane `points` daného POI.
-  - Body týmů průběžně ubývají.
+  - Hraje se v sezónách (1 sezóna = čtvrtletí). Hráč obsadí každé POI max. 1× za sezónu. Body neubývají, nová sezóna = kompletní reset.
   - Kraj dostává anonymní statistiku návštěv.
 
 ## 1. Kontrakty (rozhraní mezi rolemi – neměnit bez domluvy)
@@ -46,7 +46,7 @@ GET  /api/teams                                                     -> [{team, s
 GET  /api/events/active                                             -> aktivní quick time eventy
 GET  /api/stats/poi?from=&to=                                       -> agregace pro dashboard kraje
 ```
-Týmy: `red`, `green`, `blue` (názvy a barvy si tým ještě může změnit, ID zůstanou).
+Týmy (ID neměnit): `hory` = Hory, červená `#D7263D`; `reky` = Řeky, modrá `#1E63B5`; `lesy` = Lesy, zelená `#2E8B3E`. Barvy odpovídají turistickému značení KČT (bílá–barva–bílá).
 
 ## 2. Role A – Data
 
@@ -151,6 +151,14 @@ Konstanty dej do jednoho configu, ať se dají ladit.
 - Test: počet POI > 1 500, všechna mají `points` v 10–100, žádné souřadnice mimo bbox kraje, `id` unikátní.
 
 ## 3. Role B – Frontend / mapa
+**Název aplikace:** Turisťák, tagline „Objevuj, dobývej, poznávej kraj.“
+**Vizuální motiv:** turistika + orientační běh. Hravě, ale střídmě, bez maskotů.
+- Podklad mapy: světlý, „papírový“, inspirovaný orientační mapou (bílý les, zelené odstíny hustoty, hnědé vrstevnice, modrá voda). Návrh: MapLibre s vlastním stylem nad OSM vektory, nebo světlé rastrové dlaždice s teplým filtrem.
+- Marker POI: kontrola OB (fialový kroužek `#A626A4`). Zabrané POI má výplň barvou týmu.
+- Detail POI: žlutá cedule rozcestníku (`#F2C230`, tmavý text): název, vzdálenost, body, nejbližší zastávka.
+- Ikona týmu: značka bílá–barva–bílá (vodorovné pruhy).
+- Check-in = „ražení kontroly“: kruhový odpočet 60 s, na konci krátká animace razítka.
+- Font zaoblený a přátelský (Nunito nebo Baloo 2), rohy zaoblené, ikony jednoduché a lineární.
 - PWA (mobil first). Návrh: Vite + React + **MapLibre GL** nebo **Leaflet** + `leaflet.markercluster` (asi 2 000 bodů vyžaduje clustering).
 - Podklad: OpenStreetMap tiles (s atribucí) nebo Mapy.cz API, pokud máte klíč.
 - Obrazovky:
@@ -158,21 +166,21 @@ Konstanty dej do jednoho configu, ať se dají ladit.
   2. **Filtry:** kategorie/skupina, rozsah bodů, vzdálenost od mé polohy (`navigator.geolocation`), „jen dostupné MHD do 500 m“.
   3. **Detail POI:** název, popis, body, obec, web, nejbližší zastávka + tlačítko „Najít spoj“ (viz 5).
   4. **Check-in:** po zahájení kruh/odpočet 60 s. Každých 5 s volá `ping` s polohou. Při opuštění 100 m odpočet pozastaví a varuje.
-  5. **Žebříček:** 3 týmy, skóre živě (polling 10 s stačí).
+  5. **Žebříček:** 3 týmy, skóre aktuální sezóny živě (polling 10 s stačí), odpočet do konce sezóny, vítězové minulých sezón.
   6. **Onboarding:** jméno + výběr týmu.
 - Do doby, než existuje API, čti `data/poi.geojson` přímo a mockuj týmy.
 - Demo režim: query param `?demo=1` umožní nastavit polohu kliknutím do mapy (na pitch bez cestování).
 
 ## 4. Role C – Backend / herní logika
 - Návrh: Node (Fastify/Express) nebo Python (FastAPI) + SQLite (stačí). Při startu načte `data/poi.geojson`.
-- Tabulky: `players(id, name, team, token, created_at)`, `checkins(id, player_id, poi_id, started_at, finished_at, valid, awarded_points)`, `pings(checkin_id, ts, lat, lon, accuracy_m)`, `team_scores(team, score, updated_at)`, `events(id, type, poi_id, starts_at, ends_at, multiplier)`.
+- Tabulky: `players(id, name, team, token, created_at)`, `checkins(id, player_id, poi_id, started_at, finished_at, valid, awarded_points)`, `pings(checkin_id, ts, lat, lon, accuracy_m)`, `seasons(id, starts_at, ends_at)`, `team_scores(season_id, team, score, updated_at)`, `events(id, type, poi_id, starts_at, ends_at, multiplier)`.
 - **Validace check-inu (anti-cheat):**
   - každý ping: vzdálenost k POI ≤ 100 m a `accuracy_m` ≤ 50,
   - pingy aspoň každých 15 s, jinak se odpočet přeruší,
   - doba mezi prvním a posledním validním pingem ≥ 60 s,
   - rychlost mezi pingy < 30 km/h,
-  - cooldown: stejný hráč a stejné POI jen 1× za 24 h, stejný tým a stejné POI se snížením bodů na 50 % do 1 h.
-- **Body a jejich ubývání:** `score = score * exp(-λ * Δt_hodin)`, kde λ odpovídá 2 % za hodinu (`λ = -ln(0.98)`). Ubývání počítej líně při čtení/zápisu, ne cronem.
+  - stejný hráč a stejné POI jen 1× za sezónu.
+- **Sezóny:** 1 sezóna = kalendářní čtvrtletí. Body se během sezóny jen sčítají, neubývají. Na konci sezóny se uloží konečné pořadí (historie vítězů) a nová sezóna začíná od nuly. Délka sezóny musí jít nastavit v konfiguraci (demo: pár minut), přechod na novou sezónu počítej líně při čtení/zápisu, ne cronem.
 - **Quick time eventy (stretch):**
   - každých N minut náhodné POI s `multiplier = 2–3` na 30 min,
   - „první tým, který dorazí, bere bonus“,
@@ -196,7 +204,7 @@ Konstanty dej do jednoho configu, ať se dají ladit.
 ## 6. Pořadí a závislosti
 ```
 A: build_poi.py → poi.geojson v1 (bez bodů, ~2 h) → bodování + zastávky (v2)
-C: mock API nad poi.geojson v1 → check-in logika → body + ubývání → eventy
+C: mock API nad poi.geojson v1 → check-in logika → body + sezóny → eventy
 B: mapa nad poi.geojson v1 → filtry/detail → check-in UI napojit na C → žebříček
 D: IDOS odkazy (potřebuje nearest_stop z v2) → dashboard (potřebuje /api/stats) → pitch
 ```
