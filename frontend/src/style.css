@@ -235,6 +235,35 @@ h1, h2, h3 { font-family: var(--display); margin: 0; line-height: 1.1; }
 .count { font: 700 22px/1 var(--display); }
 .count small { font-size: 14px; color: var(--muted); }
 
+/* ---------- Filtr: hustší, vejde se nad nav bar; na malých displejích se posouvá ---------- */
+.filter-sheet {
+  gap: 8px; padding: 10px;
+  max-height: calc(100% - max(12px, env(safe-area-inset-top)) - 56px - 10px);
+  overflow-y: auto; overscroll-behavior: contain;
+}
+.filter-sheet .search { height: 38px; }
+.filter-sheet .group-chips { grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.filter-sheet .group-chips button { padding: 6px 1px 4px; font-size: 9.5px; letter-spacing: -.2px; gap: 1px; min-width: 0; }
+.filter-sheet .group-chips button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-sheet .group-chips button .material-symbols-rounded { font-size: 20px; }
+.select-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.filter-sheet select { height: 38px; min-width: 0; padding: 0 26px 0 10px; font-size: 14px; background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; }
+.row-pair { display: grid; grid-template-columns: 1.5fr 1fr; gap: 10px; }
+.filter-sheet .row { min-height: 32px; gap: 6px; }
+.filter-sheet .row b { min-width: 0; }
+.filter-sheet .row input[type=range] { min-width: 0; }
+.filter-sheet .row.km input[type=number] { height: 32px; width: 100%; }
+.toggle-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.chip-toggle {
+  display: flex; align-items: center; justify-content: center; gap: 4px; height: 34px; padding: 0 6px;
+  border-radius: var(--r); background: var(--paper); font-weight: 700; font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.chip-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.chip-toggle .material-symbols-rounded { font-size: 17px; }
+.chip-toggle.on { background: var(--ink); color: var(--card); }
+.chip-toggle:has(input:focus-visible) { outline: 2px solid var(--ink); outline-offset: 2px; }
+.filter-sheet .filter-foot { min-height: 28px; }
+
 /* ---------- Spodní navigace ---------- */
 .navbar {
   position: relative; z-index: 2100; display: flex; align-items: flex-end; height: var(--nav-h);
@@ -463,32 +492,3 @@ h3.section { font-size: 20px; margin: 22px 0 10px; }
 }
 /* zvednuté tlačítko Questy zasahuje 26 px nad nav bar, ať nepřekrývá text lišty */
 .banners .banner:last-child { padding-bottom: 46px; }
-
-/* ---------- Filtr: hustší, vejde se nad nav bar; na malých displejích se posouvá ---------- */
-.filter-sheet {
-  gap: 8px; padding: 10px;
-  max-height: calc(100% - max(12px, env(safe-area-inset-top)) - 56px - 10px);
-  overflow-y: auto; overscroll-behavior: contain;
-}
-.filter-sheet .search { height: 38px; }
-.filter-sheet .group-chips { grid-template-columns: repeat(6, 1fr); gap: 4px; }
-.filter-sheet .group-chips button { padding: 6px 1px 4px; font-size: 9.5px; letter-spacing: -.2px; gap: 1px; min-width: 0; }
-.filter-sheet .group-chips button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.filter-sheet .group-chips button .material-symbols-rounded { font-size: 20px; }
-.select-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.filter-sheet select { height: 38px; min-width: 0; padding: 0 26px 0 10px; font-size: 14px; background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; }
-.row-pair { display: grid; grid-template-columns: 1.5fr 1fr; gap: 10px; }
-.filter-sheet .row { min-height: 32px; gap: 6px; }
-.filter-sheet .row b { min-width: 0; }
-.filter-sheet .row input[type=range] { min-width: 0; }
-.filter-sheet .row.km input[type=number] { height: 32px; width: 100%; }
-.toggle-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.chip-toggle {
-  display: flex; align-items: center; justify-content: center; gap: 4px; height: 34px; padding: 0 6px;
-  border-radius: var(--r); background: var(--paper); font-weight: 700; font-size: 13px; cursor: pointer; white-space: nowrap;
-}
-.chip-toggle input { position: absolute; opacity: 0; pointer-events: none; }
-.chip-toggle .material-symbols-rounded { font-size: 17px; }
-.chip-toggle.on { background: var(--ink); color: var(--card); }
-.chip-toggle:has(input:focus-visible) { outline: 2px solid var(--ink); outline-offset: 2px; }
-.filter-sheet .filter-foot { min-height: 28px; }
